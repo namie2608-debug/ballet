@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>芭蕾一位手（First Position）體感訓練機</title>
+  <title>芭蕾預備手位（Bras bas）體感訓練機</title>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
   <style>
@@ -113,7 +113,7 @@
   </div>
 
   <div class="hud-header" id="status-card">
-    雙手向前抱圓，啟動一位手
+    雙手身前微曲抱圓，啟動預備手位
   </div>
 
   <div class="energy-bar-container">
@@ -152,7 +152,7 @@
     canvasCtx.drawImage(results.image, 0, 0, w, h);
 
     let accuracy = 0;
-    let status = "雙手向前抱圓，啟動一位手";
+    let status = "雙手身前微曲抱圓，啟動預備手位";
     let statusColor = "#FFA726";
 
     if (results.poseLandmarks) {
@@ -175,17 +175,17 @@
       const avgWristY = (lWrist.y + rWrist.y) / 2;
       const avgElbowY = (lElbow.y + rElbow.y) / 2;
 
-      // 評分一：手肘折角 (針對前傾抱圓視角，放寬為 85° ~ 150°) 滿分 40
+      // 評分一：手肘折角 (放寬為 85° ~ 150°) 滿分 40
       let scoreElbow = 0;
       if (leftElbowAngle >= 85 && leftElbowAngle <= 150 && rightElbowAngle >= 85 && rightElbowAngle <= 150) {
         scoreElbow = 40;
       } else if (leftElbowAngle > 150 || rightElbowAngle > 150) {
-        scoreElbow = 15; // 手臂太直
+        scoreElbow = 15;
       } else {
         scoreElbow = 20;
       }
 
-      // 評分二：手腕間距 (以照片為基準，放寬至肩寬的 0.3 到 1.1 倍) 滿分 30
+      // 評分二：手腕間距 (肩寬的 0.25 到 1.1 倍) 滿分 30
       let scoreDist = 0;
       if (wristDist >= shoulderWidth * 0.25 && wristDist <= shoulderWidth * 1.1) {
         scoreDist = 30;
@@ -193,7 +193,7 @@
         scoreDist = 15;
       }
 
-      // 評分三：高度判定 (手腕與手肘低於肩膀，但手腕在腹前) 滿分 30
+      // 評分三：高度判定 (手腕低於肩膀，在身前自然下垂抱圓) 滿分 30
       let scoreHeight = 0;
       if (avgWristY > avgShoulderY + 0.03 && avgElbowY > avgShoulderY) {
         scoreHeight = 30;
@@ -233,19 +233,19 @@
 
       // 狀態提示與倒數
       if (accuracy >= 85) {
-        status = "PERFECT FIRST POSITION! 優雅一位手!";
+        status = "PERFECT BRAS BAS! 標準預備手位!";
         statusColor = "#00E676";
         holdCounter++;
       } else {
         holdCounter = Math.max(0, holdCounter - 1);
         if (scoreHeight < 20) {
-          status = "沉肩！手腕置於肚臍前方！";
+          status = "沉肩放鬆！雙手置於腹前自然抱圓！";
           statusColor = "#FF5252";
         } else if (scoreElbow < 30) {
-          status = "手肘微曲抱圓，切勿鎖死！";
+          status = "手肘微曲懸空，切勿鎖死或貼緊身體！";
           statusColor = "#FF5252";
         } else {
-          status = "收腹沉肩，維持圓潤弧線！";
+          status = "收腹沉肩，維持自然弧線！";
           statusColor = "#FFA726";
         }
       }
