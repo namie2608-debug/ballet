@@ -113,7 +113,7 @@
   </div>
 
   <div class="hud-header" id="status-card">
-    請站入鏡頭，雙手準備抱圓
+    雙手向前抱圓，啟動一位手
   </div>
 
   <div class="energy-bar-container">
@@ -152,54 +152,58 @@
     canvasCtx.drawImage(results.image, 0, 0, w, h);
 
     let accuracy = 0;
-    let status = "請站好，雙臂於身前抱圓";
+    let status = "雙手向前抱圓，啟動一位手";
     let statusColor = "#FFA726";
 
     if (results.poseLandmarks) {
       const lm = results.poseLandmarks;
 
-      // 上半身關鍵點 (11:左肩, 12:右肩, 13:左肘, 14:右肘, 15:左腕, 16:右腕, 23:左髖, 24:右髖)
       const lShoulder = lm[11], rShoulder = lm[12];
       const lElbow = lm[13], rElbow = lm[14];
       const lWrist = lm[15], rWrist = lm[16];
-      const lHip = lm[23], rHip = lm[24];
 
-      // 1. 計算手肘弧度 (肩膀-手肘-手腕夾角)
+      // 1. 計算手肘夾角 (肩膀-手肘-手腕)
       const leftElbowAngle = calculateAngle(lShoulder, lElbow, lWrist);
       const rightElbowAngle = calculateAngle(rShoulder, rElbow, rWrist);
 
-      // 2. 計算兩手腕距離 (X軸差距) 與肩膀寬度比例
+      // 2. 距離計算
       const shoulderWidth = Math.abs(lShoulder.x - rShoulder.x);
       const wristDist = Math.abs(lWrist.x - rWrist.x);
 
-      // 3. 高度檢核：手腕高度需在「肩膀下方」且「髖部上方」（腹部前方）
+      // 3. 高度關係
       const avgShoulderY = (lShoulder.y + rShoulder.y) / 2;
-      const avgHipY = (lHip.y + rHip.y) / 2;
       const avgWristY = (lWrist.y + rWrist.y) / 2;
-      const isHeightCorrect = (avgWristY > avgShoulderY + 0.05) && (avgWristY < avgHipY);
+      const avgElbowY = (lElbow.y + rElbow.y) / 2;
 
-      // 評分指標一：手肘圓弧度（125° ~ 165° 為芭蕾優雅圓弧）滿分 40
+      // 評分一：手肘折角 (針對前傾抱圓視角，放寬為 85° ~ 150°) 滿分 40
       let scoreElbow = 0;
-      if (leftElbowAngle >= 125 && leftElbowAngle <= 165 && rightElbowAngle >= 125 && rightElbowAngle <= 165) {
+      if (leftElbowAngle >= 85 && leftElbowAngle <= 150 && rightElbowAngle >= 85 && rightElbowAngle <= 150) {
         scoreElbow = 40;
+      } else if (leftElbowAngle > 150 || rightElbowAngle > 150) {
+        scoreElbow = 15; // 手臂太直
       } else {
         scoreElbow = 20;
       }
 
-      // 評分指標二：手腕適當間距（距離為肩寬的 0.15 ~ 0.55 倍）滿分 30
+      // 評分二：手腕間距 (以照片為基準，放寬至肩寬的 0.3 到 1.1 倍) 滿分 30
       let scoreDist = 0;
-      if (wristDist >= shoulderWidth * 0.15 && wristDist <= shoulderWidth * 0.55) {
+      if (wristDist >= shoulderWidth * 0.25 && wristDist <= shoulderWidth * 1.1) {
         scoreDist = 30;
       } else {
-        scoreDist = 10;
+        scoreDist = 15;
       }
 
-      // 評分指標三：手腕高度是否在肚臍/腹部高度 滿分 30
-      let scoreHeight = isHeightCorrect ? 30 : 0;
+      // 評分三：高度判定 (手腕與手肘低於肩膀，但手腕在腹前) 滿分 30
+      let scoreHeight = 0;
+      if (avgWristY > avgShoulderY + 0.03 && avgElbowY > avgShoulderY) {
+        scoreHeight = 30;
+      } else {
+        scoreHeight = 10;
+      }
 
       accuracy = Math.min(100, Math.max(0, scoreElbow + scoreDist + scoreHeight));
 
-      // 繪製科技骨骼光軌
+      // 繪製骨骼線
       function drawBone(p1, p2, color, thickness) {
         canvasCtx.beginPath();
         canvasCtx.moveTo(p1.x * w, p1.y * h);
@@ -209,14 +213,11 @@
         canvasCtx.stroke();
       }
 
-      // 繪製手臂連線
       drawBone(lShoulder, rShoulder, '#FFFFFF', 3);
       drawBone(lShoulder, lElbow, '#E040FB', 4);
       drawBone(lElbow, lWrist, '#E040FB', 4);
       drawBone(rShoulder, rElbow, '#E040FB', 4);
       drawBone(rElbow, rWrist, '#E040FB', 4);
-
-      // 指尖連接線（虛擬抱圓引導線）
       drawBone(lWrist, rWrist, accuracy >= 85 ? '#00E676' : 'rgba(255,255,255,0.4)', 2);
 
       const pts = [lShoulder, rShoulder, lElbow, rElbow, lWrist, rWrist];
@@ -230,21 +231,21 @@
         canvasCtx.stroke();
       });
 
-      // 狀態提示與倒數計時
+      // 狀態提示與倒數
       if (accuracy >= 85) {
         status = "PERFECT FIRST POSITION! 優雅一位手!";
         statusColor = "#00E676";
         holdCounter++;
       } else {
         holdCounter = Math.max(0, holdCounter - 1);
-        if (!isHeightCorrect) {
-          status = avgWristY <= avgShoulderY + 0.05 ? "注意！雙手放低至肚臍前方！" : "注意！手腕微提，不要垂在髖部！";
+        if (scoreHeight < 20) {
+          status = "沉肩！手腕置於肚臍前方！";
           statusColor = "#FF5252";
         } else if (scoreElbow < 30) {
-          status = "手肘微彎抱圓，不可鎖死或下垮！";
+          status = "手肘微曲抱圓，切勿鎖死！";
           statusColor = "#FF5252";
         } else {
-          status = "手指間距留一顆蘋果大小！";
+          status = "收腹沉肩，維持圓潤弧線！";
           statusColor = "#FFA726";
         }
       }
