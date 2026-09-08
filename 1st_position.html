@@ -123,7 +123,7 @@
   </div>
 
   <div class="hud-header" id="status-card">
-    站入畫面，雙手於下胸抱圓對稱
+    請入鏡，雙臂於身前抱圓
   </div>
 
   <div class="energy-bar-container">
@@ -164,7 +164,7 @@
     canvasCtx.drawImage(results.image, 0, 0, w, h);
 
     let accuracy = 0;
-    let status = "站入畫面，雙手於下胸抱圓對稱";
+    let status = "請入鏡，雙臂於身前抱圓";
     let statusColor = "#FFA726";
 
     if (results.poseLandmarks) {
@@ -173,64 +173,54 @@
       const lShoulder = lm[11], rShoulder = lm[12];
       const lElbow = lm[13], rElbow = lm[14];
       const lWrist = lm[15], rWrist = lm[16];
-      const lHip = lm[23], rHip = lm[24];
 
-      const leftElbowAngle = calculateAngle(lShoulder, lElbow, lWrist);
-      const rightElbowAngle = calculateAngle(rShoulder, rElbow, rWrist);
-
+      // 尺標計算（以肩膀寬度為絕對基準，不再依賴未入鏡的髖骨）
       const shoulderWidth = Math.abs(lShoulder.x - rShoulder.x);
-      const wristDist = Math.abs(lWrist.x - rWrist.x);
-
       const avgShoulderY = (lShoulder.y + rShoulder.y) / 2;
-      const avgHipY = (lHip.y + rHip.y) / 2;
+      const avgElbowY = (lElbow.y + rElbow.y) / 2;
       const avgWristY = (lWrist.y + rWrist.y) / 2;
 
-      // 1. 左右高度對稱性檢核（手肘、手腕等高）
+      // 1. 手腕高度判定（以照片姿勢為準：手腕在肩膀下方 0.45 ~ 1.05 個肩寬距離，手腕稍微低於或同高手肘）
+      const wristDepth = avgWristY - avgShoulderY;
+      let scoreHeight = 0;
+      if (wristDepth >= shoulderWidth * 0.45 && wristDepth <= shoulderWidth * 1.1) {
+        scoreHeight = 40;
+      } else if (wristDepth < shoulderWidth * 0.45) {
+        scoreHeight = 15; // 太高
+      } else {
+        scoreHeight = 20;
+      }
+
+      // 2. 左右高度與角度對稱檢核（滿分 35）
       const elbowHeightDiff = Math.abs(lElbow.y - rElbow.y);
       const wristHeightDiff = Math.abs(lWrist.y - rWrist.y);
-      const angleDiff = Math.abs(leftElbowAngle - rightElbowAngle);
+      const isSymmetric = (elbowHeightDiff <= shoulderWidth * 0.18) && (wristHeightDiff <= shoulderWidth * 0.2);
 
-      // 對稱滿分 35 分
       let scoreSymmetry = 0;
-      const isHeightSymmetric = (elbowHeightDiff < 0.045 && wristHeightDiff < 0.05);
-      const isAngleSymmetric = (angleDiff <= 25);
-
-      if (isHeightSymmetric && isAngleSymmetric) {
+      if (isSymmetric) {
         scoreSymmetry = 35;
-      } else if (isHeightSymmetric || isAngleSymmetric) {
-        scoreSymmetry = 20;
       } else {
-        scoreSymmetry = 10;
+        scoreSymmetry = 15;
       }
 
-      // 2. 下胸高度檢核 (肩膀與髖骨之間 18% ~ 60%) 滿分 35 分
-      const chestTopY = avgShoulderY + (avgHipY - avgShoulderY) * 0.18;
-      const chestBottomY = avgShoulderY + (avgHipY - avgShoulderY) * 0.60;
-      const isAtLowerChest = (avgWristY >= chestTopY && avgWristY <= chestBottomY);
+      // 3. 手臂抱圓弧度與手腕開度（滿分 25）
+      const leftElbowAngle = calculateAngle(lShoulder, lElbow, lWrist);
+      const rightElbowAngle = calculateAngle(rShoulder, rElbow, rWrist);
+      const wristDist = Math.abs(lWrist.x - rWrist.x);
 
-      let scoreHeight = 0;
-      if (isAtLowerChest) {
-        scoreHeight = 35;
-      } else {
-        scoreHeight = 10;
-      }
-
-      // 3. 抱圓弧度與手腕適當開度 滿分 30 分
       let scoreShape = 0;
-      const isElbowGood = (leftElbowAngle >= 95 && leftElbowAngle <= 155 && rightElbowAngle >= 95 && rightElbowAngle <= 155);
-      const isDistGood = (wristDist >= shoulderWidth * 0.15 && wristDist <= shoulderWidth * 0.85);
+      const isAngleGood = (leftElbowAngle >= 80 && leftElbowAngle <= 145 && rightElbowAngle >= 80 && rightElbowAngle <= 145);
+      const isDistGood = (wristDist >= shoulderWidth * 0.15 && wristDist <= shoulderWidth * 0.95);
 
-      if (isElbowGood && isDistGood) {
-        scoreShape = 30;
-      } else if (isElbowGood || isDistGood) {
-        scoreShape = 18;
+      if (isAngleGood && isDistGood) {
+        scoreShape = 25;
       } else {
-        scoreShape = 10;
+        scoreShape = 15;
       }
 
-      accuracy = Math.min(100, Math.max(0, scoreSymmetry + scoreHeight + scoreShape));
+      accuracy = Math.min(100, Math.max(0, scoreHeight + scoreSymmetry + scoreShape));
 
-      // 繪製科技骨骼線
+      // 繪製骨骼線
       function drawBone(p1, p2, color, thickness) {
         canvasCtx.beginPath();
         canvasCtx.moveTo(p1.x * w, p1.y * h);
@@ -247,8 +237,8 @@
       drawBone(rElbow, rWrist, '#00E5FF', 4);
       drawBone(lWrist, rWrist, accuracy >= 85 ? '#00E676' : 'rgba(255,255,255,0.4)', 2);
 
-      // 兩手肘連一條微弱水平輔助線，方便肉眼確認是否等高
-      drawBone(lElbow, rElbow, isHeightSymmetric ? 'rgba(0,230,118,0.5)' : 'rgba(255,82,82,0.4)', 1);
+      // 手肘水平輔助線
+      drawBone(lElbow, rElbow, isSymmetric ? 'rgba(0,230,118,0.5)' : 'rgba(255,82,82,0.4)', 1);
 
       const pts = [lShoulder, rShoulder, lElbow, rElbow, lWrist, rWrist];
       pts.forEach(p => {
@@ -261,24 +251,21 @@
         canvasCtx.stroke();
       });
 
-      // 狀態反饋與提示
+      // 提示文字與倒數
       if (accuracy >= 85) {
         status = "PERFECT FIRST POSITION! 完美對稱一位手!";
         statusColor = "#00E676";
         holdCounter++;
       } else {
         holdCounter = Math.max(0, holdCounter - 1);
-        if (!isHeightSymmetric) {
-          status = lElbow.y > rElbow.y ? "注意！左手肘微抬，與右手等高！" : "注意！右手肘微抬，與左手等高！";
+        if (!isSymmetric) {
+          status = lElbow.y > rElbow.y ? "左手肘微抬，保持左右等高！" : "右手肘微抬，保持左右等高！";
           statusColor = "#FF5252";
-        } else if (avgWristY < chestTopY) {
-          status = "沉肩！手腕放低至下胸高度！";
+        } else if (wristDepth < shoulderWidth * 0.45) {
+          status = "沉肩！雙手放低至下胸高度！";
           statusColor = "#FF5252";
-        } else if (avgWristY > chestBottomY) {
-          status = "手腕微提，對齊下胸前方！";
-          statusColor = "#FF5252";
-        } else if (!isAngleSymmetric) {
-          status = "左右手臂開度要對稱平衡！";
+        } else if (wristDist > shoulderWidth * 0.95) {
+          status = "手腕向內收攏，指尖留微距！";
           statusColor = "#FFA726";
         } else {
           status = "沉肩長頸，維持優雅抱圓！";
