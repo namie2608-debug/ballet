@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cyber Ballet 芭蕾手位 AI 體感訓練艙</title>
+  <style>
+    :root {
+      --primary: #00E5FF;
+      --accent: #00E676;
+      --bg: #0d1117;
+      --card-bg: #161b22;
+      --border: #30363d;
+      --text: #c9d1d9;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 32px 16px;
+    }
+    header {
+      text-align: center;
+      margin-bottom: 36px;
+    }
+    h1 {
+      color: #fff;
+      font-size: 2rem;
+      letter-spacing: 2px;
+      margin-bottom: 8px;
+    }
+    p.subtitle {
+      color: var(--primary);
+      font-size: 0.95rem;
+      letter-spacing: 1px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 20px;
+      width: 100%;
+      max-width: 900px;
+    }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+      text-decoration: none;
+      color: inherit;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
+    }
+    .card:hover {
+      transform: translateY(-4px);
+      border-color: var(--primary);
+      box-shadow: 0 8px 24px rgba(0, 229, 255, 0.15);
+    }
+    .tag {
+      display: inline-block;
+      align-self: flex-start;
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: #000;
+      background: var(--primary);
+      margin-bottom: 12px;
+    }
+    .card h2 {
+      font-size: 1.25rem;
+      color: #fff;
+      margin-bottom: 8px;
+    }
+    .card p {
+      font-size: 0.88rem;
+      line-height: 1.4;
+      color: #8b949e;
+      margin-bottom: 16px;
+    }
+    .btn-label {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--accent);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    footer {
+      margin-top: 48px;
+      font-size: 0.8rem;
+      color: #484f58;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>CYBER BALLET</h1>
+    <p class="subtitle">AI 芭蕾手位體感檢測艙</p>
+  </header>
+
+  <main class="grid">
+    <a class="card" href="1st_position.html">
+      <div>
+        <span class="tag">STAGE 01</span>
+        <h2>第一手位 (1st)</h2>
+        <p>雙手於下胸前方抱圓，左右對稱等高，指尖保留一顆小蘋果微距。</p>
+      </div>
+      <div class="btn-label">啟動檢測機 →</div>
+    </a>
+
+    <a class="card" href="2nd_position.html">
+      <div>
+        <span class="tag">STAGE 02</span>
+        <h2>第二手位 (2nd)</h2>
+        <p>雙臂向兩側斜前下方展開，呈現流暢向下的水滴坡度與柔和弧線。</p>
+      </div>
+      <div class="btn-label">啟動檢測機 →</div>
+    </a>
+
+    <a class="card" href="3rd_position.html">
+      <div>
+        <span class="tag">STAGE 03</span>
+        <h2>第三手位 (3rd)</h2>
+        <p>一手額前上方高位抱圓、另一手旁側展開，軀幹中軸保持平衡。</p>
+      </div>
+      <div class="btn-label">啟動檢測機 →</div>
+    </a>
+
+    <a class="card" href="4th_position.html">
+      <div>
+        <span class="tag">STAGE 04</span>
+        <h2>第四手位 (4th)</h2>
+        <p>一手額前高位抱圓、一手胸前正中抱圓，形成前後立體雙環。</p>
+      </div>
+      <div class="btn-label">啟動檢測機 →</div>
+    </a>
+
+    <a class="card" href="5th_position.html">
+      <div>
+        <span class="tag">STAGE 05</span>
+        <h2>第五手位 (5th)</h2>
+        <p>雙手上舉於頭頂斜前上方抱圓，沉肩拔頸，指尖留有一拳空間。</p>
+      </div>
+      <div class="btn-label">啟動檢測機 →</div>
+    </a>
+  </main>
+
+  <footer>
+    自主調節學習 (NTSRL) 肢體感知數位教材
+  </footer>
+
+</body>
+</html>
