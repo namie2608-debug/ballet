@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>芭蕾第二位置（Seconde Position）天鵝之翼體感評測機</title>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: #121212;
+      color: #fff;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      overflow: hidden;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+    }
+    #stage-container {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      max-width: 1280px;
+      max-height: 720px;
+      background: #000;
+    }
+    video { 
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      opacity: 0;
+      pointer-events: none;
+    }
+    canvas {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transform: scaleX(-1);
+    }
+    .hud-header {
+      position: absolute;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0, 0, 0, 0.75);
+      border: 3px solid #00E676;
+      padding: 10px 24px;
+      border-radius: 30px;
+      font-size: 22px;
+      font-weight: bold;
+      text-align: center;
+      transition: all 0.2s;
+      white-space: nowrap;
+      z-index: 10;
+    }
+    .timer-badge {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      background: rgba(0,0,0,0.7);
+      border: 4px solid #FF5252;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      font-size: 28px;
+      font-weight: 800;
+      z-index: 10;
+    }
+    .timer-badge span {
+      font-size: 11px;
+      color: #aaa;
+      margin-top: -2px;
+    }
+    .energy-bar-container {
+      position: absolute;
+      right: 25px;
+      top: 100px;
+      bottom: 100px;
+      width: 28px;
+      background: rgba(255,255,255,0.15);
+      border: 2px solid #fff;
+      border-radius: 14px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column-reverse;
+      z-index: 10;
+    }
+    .energy-bar-fill {
+      width: 100%;
+      height: 0%;
+      background: #FF5252;
+      transition: height 0.1s ease-out, background-color 0.2s;
+    }
+    .score-text {
+      position: absolute;
+      right: 15px;
+      bottom: 60px;
+      font-size: 22px;
+      font-weight: bold;
+      color: #fff;
+      width: 50px;
+      text-align: center;
+      z-index: 10;
+    }
+  </style>
+</head>
+<body>
+
+<div id="stage-container">
+  <video id="webcam" playsinline autoplay muted></video>
+  <canvas id="output-canvas"></canvas>
+
+  <div class="timer-badge" id="timer-badge">
+    <div id="hold-sec">0</div>
+    <span>HOLD(S)</span>
+  </div>
+
+  <div class="hud-header" id="status-card">
+    請入鏡，雙臂向兩側優雅開展（第二位置）
+  </div>
+
+  <div class="energy-bar-container">
+    <div class="energy-bar-fill" id="energy-fill"></div>
+  </div>
+  <div class="score-text" id="score-text">0%</div>
+</div>
+
+<script>
+  const videoElement = document.getElementById('webcam');
+  const canvasElement = document.getElementById('output-canvas');
+  const canvasCtx = canvasElement.getContext('2d');
+  const statusCard = document.getElementById('status-card');
+  const energyFill = document.getElementById('energy-fill');
+  const scoreText = document.getElementById('score-text');
+  const holdSecText = document.getElementById('hold-sec');
+  const timerBadge = document.getElementById('timer-badge');
+
+  let holdCounter = 0;
+
+  function calculateAngle(a, b, c) {
+    const radians = Math.atan2(c.y - b.y, c.x - b.x) - Math.atan2(a.y - b.y, a.x - b.x);
+    let angle = Math.abs(radians * 180.0 / Math.PI);
+    if (angle > 180.0) angle = 360 - angle;
+    return Math.round(angle);
+  }
+
+  function onResults(results) {
+    if (!results.image) return;
+
+    canvasElement.width = videoElement.videoWidth || 1280;
+    canvasElement.height = videoElement.videoHeight || 720;
+    const w = canvasElement.width;
+    const h = canvasElement.height;
+
+    canvasCtx.save();
+    canvasCtx.clearRect(0, 0, w, h);
+    canvasCtx.drawImage(results.image, 0, 0, w, h);
+
+    let accuracy = 0;
+    let status = "雙臂向兩側開展，維持第二位置";
+    let statusColor = "#FFA726";
+
+    if (results.poseLandmarks) {
+      const lm = results.poseLandmarks;
+
+      const lShoulder = lm[11], rShoulder = lm[12];
+      const lElbow = lm[13], rElbow = lm[14];
+      const lWrist = lm[15], rWrist = lm[16];
+      const lPinky = lm[17], rPinky = lm[18];
+      const lIndex = lm[19], rIndex = lm[20];
+      const lThumb = lm[21], rThumb = lm[22];
+
+      const shoulderWidth = Math.abs(lShoulder.x - rShoulder.x);
+      const wingspan = Math.abs(lIndex.x - rIndex.x);
+
+      const avgShoulderY = (lShoulder.y + rShoulder.y) / 2;
+
+      // 1. 翼展寬度檢核（第二位置雙臂展開，食指尖寬度需達肩寬 1.85 倍以上）
+      const isSpanGood = (wingspan >= shoulderWidth * 1.85);
+
+      // 2. 坡度原則：肩膀 -> 手肘 -> 手腕（微幅平緩向下，水滴順流滑落）
+      // Y 越大代表越低：手肘微低於肩膀，手腕微低於或同高手肘
+      const leftSlope = (lElbow.y >= lShoulder.y - 0.03) && (lWrist.y >= lElbow.y - 0.04);
+      const rightSlope = (rElbow.y >= rShoulder.y - 0.03) && (rWrist.y >= rElbow.y - 0.04);
+      const isSlopeGood = leftSlope && rightSlope;
+
+      // 3. 手肘不可鎖死（角度約 145° ~ 175°），也不可過度彎曲塌陷（< 140°）
+      const leftElbowAngle = calculateAngle(lShoulder, lElbow, lWrist);
+      const rightElbowAngle = calculateAngle(rShoulder, rElbow, rWrist);
+      const isElbowGood = (leftElbowAngle >= 142 && leftElbowAngle <= 176 && rightElbowAngle >= 142 && rightElbowAngle <= 176);
+
+      // 4. 左右平衡對稱性（手肘與手腕高度差在合理範圍內）
+      const elbowDiff = Math.abs(lElbow.y - rElbow.y);
+      const wristDiff = Math.abs(lWrist.y - rWrist.y);
+      const isSymmetric = (elbowDiff <= shoulderWidth * 0.14) && (wristDiff <= shoulderWidth * 0.16);
+
+      // 5. 防止手垂落至腰下（手腕必須在肩膀下方 0.55 個肩寬以內）
+      const isHeightAlive = (lWrist.y <= avgShoulderY + shoulderWidth * 0.55) && (rWrist.y <= avgShoulderY + shoulderWidth * 0.55);
+
+      // 評分權重
+      let scoreSpan = isSpanGood ? 30 : 5;
+      let scoreSlope = (isSlopeGood && isHeightAlive) ? 25 : 5;
+      let scoreElbow = isElbowGood ? 25 : 10;
+      let scoreSymmetry = isSymmetric ? 20 : 5;
+
+      accuracy = Math.min(100, Math.max(0, scoreSpan + scoreSlope + scoreElbow + scoreSymmetry));
+
+      // 繪製骨骼線
+      function drawBone(p1, p2, color, thickness) {
+        canvasCtx.beginPath();
+        canvasCtx.moveTo(p1.x * w, p1.y * h);
+        canvasCtx.lineTo(p2.x * w, p2.y * h);
+        canvasCtx.lineWidth = thickness;
+        canvasCtx.strokeStyle = color;
+        canvasCtx.stroke();
+      }
+
+      drawBone(lShoulder, rShoulder, '#FFFFFF', 3);
+      drawBone(lShoulder, lElbow, '#00E5FF', 4);
+      drawBone(lElbow, lWrist, '#00E5FF', 4);
+      drawBone(rShoulder, rElbow, '#00E5FF', 4);
+      drawBone(rElbow, rWrist, '#00E5FF', 4);
+
+      // 手部指尖微結構連線
+      drawBone(lWrist, lIndex, '#E040FB', 2);
+      drawBone(lWrist, lThumb, '#E040FB', 2);
+      drawBone(lIndex, lPinky, '#E040FB', 2);
+      drawBone(rWrist, rIndex, '#E040FB', 2);
+      drawBone(rWrist, rThumb, '#E040FB', 2);
+      drawBone(rIndex, rPinky, '#E040FB', 2);
+
+      // 手腕至指尖水平延伸導引線
+      drawBone(lWrist, rWrist, accuracy >= 85 ? 'rgba(0, 230, 118, 0.4)' : 'rgba(255, 255, 255, 0.2)', 1);
+
+      const keyPoints = [
+        lShoulder, rShoulder, lElbow, rElbow, 
+        lWrist, rWrist, 
+        lPinky, rPinky, lIndex, rIndex, lThumb, rThumb
+      ];
+
+      keyPoints.forEach(p => {
+        canvasCtx.beginPath();
+        canvasCtx.arc(p.x * w, p.y * h, 6, 0, 2 * Math.PI);
+        canvasCtx.fillStyle = accuracy >= 85 ? '#00E676' : '#00E5FF';
+        canvasCtx.fill();
+        canvasCtx.lineWidth = 1.5;
+        canvasCtx.strokeStyle = '#FFFFFF';
+        canvasCtx.stroke();
+      });
+
+      // 狀態提示反饋
+      if (accuracy >= 85) {
+        status = "PERFECT 2ND POSITION! 優雅天鵝之翼!";
+        statusColor = "#00E676";
+        holdCounter++;
+      } else {
+        holdCounter = Math.max(0, holdCounter - 1);
+        if (!isSpanGood) {
+          status = "雙臂向兩側充分延展拉開！";
+          statusColor = "#FF5252";
+        } else if (!isHeightAlive) {
+          status = "雙手抬起至胸肩高度，勿下墜！";
+          statusColor = "#FF5252";
+        } else if (!isSlopeGood) {
+          status = "手肘不可低於手腕！維持平緩滑水道！";
+          statusColor = "#FF5252";
+        } else if (leftElbowAngle > 176 || rightElbowAngle > 176) {
+          status = "手肘微曲柔和，切勿死直鎖死！";
+          statusColor = "#FFA726";
+        } else if (!isSymmetric) {
+          status = lElbow.y > rElbow.y ? "左手稍微抬高，保持左右平衡！" : "右手稍微抬高，保持左右平衡！";
+          statusColor = "#FFA726";
+        } else {
+          status = "沉肩長頸，指尖向遠方無限延伸！";
+          statusColor = "#FFA726";
+        }
+      }
+    }
+
+    const holdSeconds = Math.floor(holdCounter / 20);
+    holdSecText.innerText = holdSeconds;
+    scoreText.innerText = accuracy + "%";
+    energyFill.style.height = accuracy + "%";
+
+    if (accuracy >= 85) {
+      energyFill.style.backgroundColor = "#00E676";
+      timerBadge.style.borderColor = "#00E676";
+    } else {
+      energyFill.style.backgroundColor = "#FF5252";
+      timerBadge.style.borderColor = "#FF5252";
+    }
+
+    statusCard.innerText = status;
+    statusCard.style.borderColor = statusColor;
+    statusCard.style.color = statusColor;
+
+    canvasCtx.restore();
+  }
+
+  const pose = new Pose({
+    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
+  });
+
+  pose.setOptions({
+    modelComplexity: 1,
+    smoothLandmarks: true,
+    minDetectionConfidence: 0.5,
+    minTrackingConfidence: 0.5
+  });
+
+  pose.onResults(onResults);
+
+  const camera = new Camera(videoElement, {
+    onFrame: async () => {
+      await pose.send({ image: videoElement });
+    },
+    width: 1280,
+    height: 720
+  });
+
+  camera.start().catch((err) => {
+    console.error("Camera error:", err);
+    statusCard.innerText = "無法開啟相機，請檢查瀏覽器相機權限！";
+    statusCard.style.borderColor = "#FF5252";
+    statusCard.style.color = "#FF5252";
+  });
+</script>
+</body>
+</html>
