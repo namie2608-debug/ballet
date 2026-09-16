@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>芭蕾手部第一位置（精準防交疊版）</title>
+  <title>芭蕾手部第一位置（手腕寬距大抱圓版）</title>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
   <style>
@@ -185,45 +185,43 @@
       const avgShoulderY = (lShoulder.y + rShoulder.y) / 2;
       const avgWristY = (lWrist.y + rWrist.y) / 2;
 
-      // --- 條件 1：指尖微距防作弊（指尖不能重疊，也不能分太開）---
-      // 左右食指尖距離需在 0.16 ~ 0.70 個肩寬（第一張重疊會小於 0.16）
-      const isFingersNotOverlapped = (fingerTipDist >= shoulderWidth * 0.16);
-      const isFingersNotTooFar = (fingerTipDist <= shoulderWidth * 0.70);
+      // 1. 指尖防重疊檢核（不可交疊，且指尖留有微距）
+      const isFingersNotOverlapped = (fingerTipDist >= shoulderWidth * 0.15);
+      const isFingersNotTooFar = (fingerTipDist <= shoulderWidth * 0.85);
       const isFingersValid = isFingersNotOverlapped && isFingersNotTooFar;
 
-      // --- 條件 2：手腕間距標準化（完全對標第二張標準照片）---
-      // 手腕落在 0.85 ~ 1.65 個肩寬之間（包含略寬於肩的自然弧線）
-      const isWristSpanGood = (wristDist >= shoulderWidth * 0.80 && wristDist <= shoulderWidth * 1.65);
+      // 2. 手腕間距大幅拓寬（改為肩寬的 0.95 ~ 2.10 倍，包容手腕開展到肩外側的弧度）
+      const isWristSpanGood = (wristDist >= shoulderWidth * 0.95 && wristDist <= shoulderWidth * 2.10);
 
-      // --- 條件 3：手肘向外撐開（手肘寬度需大於手腕寬度與肩寬）---
-      const isElbowFlared = (elbowWidth >= shoulderWidth * 1.10) && (elbowWidth > wristDist * 1.05);
+      // 3. 手肘向外撐開（手肘寬度需大於手腕寬度且大於肩寬）
+      const isElbowFlared = (elbowWidth >= shoulderWidth * 1.15) && (elbowWidth >= wristDist * 0.95);
 
-      // --- 條件 4：高度檢核（手腕在下胸與肚臍之間）---
+      // 4. 高度檢核（手腕在下胸與肚臍之間）
       const wristDepth = avgWristY - avgShoulderY;
-      const isHeightGood = (wristDepth >= shoulderWidth * 0.35 && wristDepth <= shoulderWidth * 1.05);
+      const isHeightGood = (wristDepth >= shoulderWidth * 0.35 && wristDepth <= shoulderWidth * 1.10);
 
-      // --- 條件 5：手肘圓弧度與左右對稱 ---
+      // 5. 手肘圓弧度與左右對稱
       const leftElbowAngle = calculateAngle(lShoulder, lElbow, lWrist);
       const rightElbowAngle = calculateAngle(rShoulder, rElbow, rWrist);
-      const isAngleGood = (leftElbowAngle >= 80 && leftElbowAngle <= 155 && rightElbowAngle >= 80 && rightElbowAngle <= 155);
+      const isAngleGood = (leftElbowAngle >= 75 && leftElbowAngle <= 155 && rightElbowAngle >= 75 && rightElbowAngle <= 155);
 
       const elbowHeightDiff = Math.abs(lElbow.y - rElbow.y);
       const wristHeightDiff = Math.abs(lWrist.y - rWrist.y);
       const isSymmetric = (elbowHeightDiff <= shoulderWidth * 0.16) && (wristHeightDiff <= shoulderWidth * 0.18);
 
-      // 嚴格權重配置（一旦重疊直接失格）
+      // 權重配置
       let scoreFingers = 0;
       if (isFingersValid) {
         scoreFingers = 30;
       } else if (!isFingersNotOverlapped) {
-        scoreFingers = 0; // 重疊作弊 0 分
+        scoreFingers = 0; // 重疊直接扣光
       } else {
         scoreFingers = 10;
       }
 
-      let scoreWrist = isWristSpanGood ? 25 : 8;
+      let scoreWrist = isWristSpanGood ? 30 : 10;
       let scoreFlare = isElbowFlared ? 20 : 0;
-      let scoreHeight = isHeightGood ? 15 : 5;
+      let scoreHeight = isHeightGood ? 10 : 5;
       let scoreSymmetryAndAngle = (isAngleGood && isSymmetric) ? 10 : 5;
 
       accuracy = Math.min(100, Math.max(0, scoreFingers + scoreWrist + scoreFlare + scoreHeight + scoreSymmetryAndAngle));
@@ -251,8 +249,9 @@
       drawBone(rWrist, rThumb, '#E040FB', 2);
       drawBone(rIndex, rPinky, '#E040FB', 2);
 
-      // 指尖距離連線（重疊亮紅、完美亮綠）
+      // 指尖輔助線
       drawBone(lIndex, rIndex, (!isFingersNotOverlapped) ? '#FF5252' : (accuracy >= 85 ? '#00E676' : 'rgba(255,255,255,0.4)'), 2);
+      // 手肘水平對稱線
       drawBone(lElbow, rElbow, isSymmetric ? 'rgba(0,230,118,0.4)' : 'rgba(255,82,82,0.3)', 1);
 
       const keyPoints = [
@@ -273,7 +272,7 @@
 
       // 狀態提示反饋
       if (accuracy >= 85) {
-        status = "PERFECT 1ST POSITION! 完美對稱一位手!";
+        status = "PERFECT 1ST POSITION! 完美一位手!";
         statusColor = "#00E676";
         holdCounter++;
       } else {
@@ -281,8 +280,11 @@
         if (!isFingersNotOverlapped) {
           status = "指尖切勿互相交疊！保留一顆蘋果微距！";
           statusColor = "#FF5252";
-        } else if (!isFingersNotTooFar) {
-          status = "雙手向內微攏，指尖留一拳微距！";
+        } else if (wristDist < shoulderWidth * 0.95) {
+          status = "雙手手腕微放寬，讓抱圓更舒展開展！";
+          statusColor = "#FFA726";
+        } else if (wristDist > shoulderWidth * 2.10) {
+          status = "雙手稍微向內合攏抱圓！";
           statusColor = "#FFA726";
         } else if (!isElbowFlared) {
           status = "手肘向外撐開架圓，切勿貼緊身側！";
