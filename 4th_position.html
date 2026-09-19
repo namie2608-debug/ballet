@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>芭蕾第四手位（4th Position）體感評測機</title>
+  <title>芭蕾第四手位（4th Position）黃金標準版</title>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
   <style>
@@ -123,7 +123,7 @@
   </div>
 
   <div class="hud-header" id="status-card">
-    請入鏡：一手頭頂抱圓、一手胸前抱圓（第四手位）
+    一手頭頂抱圓、一手胸前抱圓（第四手位）
   </div>
 
   <div class="energy-bar-container">
@@ -192,52 +192,55 @@
       const lowShoulder = isLeftHigh ? rShoulder : lShoulder;
       const lowIndex = isLeftHigh ? rIndex : lIndex;
 
-      // 1. 上方手（五位手高弧度）滿分 35 分
-      const isHighOverHead = (highWrist.y < nose.y - shoulderWidth * 0.08);
+      // --- 1. 上方手檢核（以照片為準：高於頭部、手腕在頭頂斜前上方、微曲）---
+      const isHighOverHead = (highWrist.y < nose.y - shoulderWidth * 0.10);
+      const highWristOffset = Math.abs(highWrist.x - nose.x);
+      // 頭頂收攏範圍（放寬到 0.65 個肩寬，包容照片中自然立體的王冠弧度）
+      const isHighCentered = (highWristOffset <= shoulderWidth * 0.65);
+      const isHighTooWide = (highWristOffset > shoulderWidth * 0.68);
+
+      // 上方手肘弧度（放寬至 172°，避免把照片中飽滿舒展的弧度誤判為死直）
       const highAngle = calculateAngle(highShoulder, highElbow, highWrist);
-      const isHighCurved = (highAngle >= 110 && highAngle <= 165);
-      const isHighForward = (highWrist.z < highShoulder.z + 0.06);
+      const isHighCurved = (highAngle >= 105 && highAngle <= 172);
 
       let scoreHigh = 0;
-      if (isHighOverHead && isHighCurved && isHighForward) {
-        scoreHigh = 35;
-      } else if (isHighOverHead) {
-        scoreHigh = 20;
+      if (isHighOverHead && isHighCentered && isHighCurved) {
+        scoreHigh = 40;
+      } else if (isHighOverHead && !isHighTooWide) {
+        scoreHigh = 25;
       } else {
         scoreHigh = 5;
       }
 
-      // 2. 胸前手（一位手弧度）滿分 35 分
-      // 高度在下胸到肚臍之間
+      // --- 2. 胸前手檢核（完全對標照片中一位手抱圓）---
+      // 高度在下胸到肚臍高度（在肩膀下方 0.35 ~ 1.05 個肩寬）
       const lowWristDepth = lowWrist.y - avgShoulderY;
-      const isLowHeightGood = (lowWristDepth >= shoulderWidth * 0.35 && lowWristDepth <= shoulderWidth * 0.95);
-      // 手肘架開向外
-      const isLowElbowFlared = Math.abs(lowElbow.x - nose.x) >= shoulderWidth * 0.55;
-      // 手腕收攏在胸前中軸線附近
-      const isLowCentered = Math.abs(lowIndex.x - nose.x) <= shoulderWidth * 0.45;
-      // 手肘弧度微曲
+      const isLowHeightGood = (lowWristDepth >= shoulderWidth * 0.35 && lowWristDepth <= shoulderWidth * 1.05);
+
+      // 手肘外架開度：手肘必須明顯在軀幹外側撐起弧度
+      const isLowElbowFlared = Math.abs(lowElbow.x - nose.x) >= shoulderWidth * 0.60;
+
+      // 手腕收攏範圍：對齊胸口與腹前（距離中軸放寬至 0.75 個肩寬，完全包容照片位置）
+      const lowWristOffset = Math.abs(lowWrist.x - nose.x);
+      const isLowCentered = (lowWristOffset <= shoulderWidth * 0.75);
+
+      // 胸前手手肘弧度
       const lowAngle = calculateAngle(lowShoulder, lowElbow, lowWrist);
-      const isLowCurved = (lowAngle >= 85 && lowAngle <= 150);
+      const isLowCurved = (lowAngle >= 75 && lowAngle <= 155);
 
       let scoreLow = 0;
       if (isLowHeightGood && isLowElbowFlared && isLowCentered && isLowCurved) {
-        scoreLow = 35;
+        scoreLow = 40;
       } else if (isLowHeightGood && isLowCurved) {
-        scoreLow = 22;
+        scoreLow = 25;
       } else {
         scoreLow = 5;
       }
 
-      // 3. 軀幹中軸水平與穩定度 滿分 30 分
+      // --- 3. 軀幹中軸與對稱 ---
       const shoulderTilt = Math.abs(lShoulder.y - rShoulder.y);
-      let scoreTorso = 0;
-      if (shoulderTilt <= shoulderWidth * 0.15) {
-        scoreTorso = 30;
-      } else if (shoulderTilt <= shoulderWidth * 0.22) {
-        scoreTorso = 15;
-      } else {
-        scoreTorso = 5;
-      }
+      const isTorsoStable = (shoulderTilt <= shoulderWidth * 0.18);
+      let scoreTorso = isTorsoStable ? 20 : 5;
 
       accuracy = Math.min(100, Math.max(0, scoreHigh + scoreLow + scoreTorso));
 
@@ -265,9 +268,8 @@
       drawBone(rWrist, rThumb, '#E040FB', 2);
       drawBone(rIndex, rPinky, '#E040FB', 2);
 
-      // 上下雙圓輔助導引線
+      // 上方手頭頂導引連線
       drawBone(highWrist, nose, accuracy >= 85 ? 'rgba(0, 230, 118, 0.4)' : 'rgba(255, 255, 255, 0.2)', 1);
-      drawBone(lowWrist, {x: nose.x, y: avgShoulderY + shoulderWidth * 0.55}, accuracy >= 85 ? 'rgba(0, 230, 118, 0.4)' : 'rgba(255, 255, 255, 0.2)', 1);
 
       const keyPoints = [
         lShoulder, rShoulder, lElbow, rElbow, 
@@ -285,7 +287,7 @@
         canvasCtx.stroke();
       });
 
-      // 提示回饋
+      // 提示狀態
       if (accuracy >= 85) {
         status = "PERFECT 4TH POSITION! 完美第四手位!";
         statusColor = "#00E676";
@@ -295,20 +297,20 @@
         if (!isHighOverHead) {
           status = "一手向上提至額頭前上方抱圓！";
           statusColor = "#FF5252";
+        } else if (isHighTooWide) {
+          status = "上方手開掉太斜了！向頭頂上方收攏抱圓！";
+          statusColor = "#FF5252";
         } else if (!isLowHeightGood) {
-          status = "另一手放在胸骨下方、肚臍上方抱圓！";
+          status = "胸前手放於下胸至肚臍前方抱圓！";
           statusColor = "#FF5252";
-        } else if (!isLowCentered) {
-          status = "胸前手向身體正中線收攏，保持圓潤！";
-          statusColor = "#FFA726";
-        } else if (shoulderTilt > shoulderWidth * 0.15) {
+        } else if (!isLowElbowFlared) {
+          status = "胸前手肘向外撐開架圓，切勿貼緊身側！";
+          statusColor = "#FF5252";
+        } else if (shoulderTilt > shoulderWidth * 0.18) {
           status = "沉肩！身體中軸站直，勿被上方手拉歪！";
-          statusColor = "#FF5252";
-        } else if (!isHighCurved || !isLowCurved) {
-          status = "雙手手肘皆微曲抱圓，切勿鎖死！";
           statusColor = "#FFA726";
         } else {
-          status = "沉肩長頸，維持前後立體抱圓！";
+          status = "沉肩長頸，維持前後立體雙環！";
           statusColor = "#FFA726";
         }
       }
