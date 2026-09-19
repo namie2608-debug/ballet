@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>芭蕾第二位置（Seconde Position）斜前下弧度評測機</title>
+  <title>芭蕾第二位置（防下垂嚴格版）</title>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
   <style>
@@ -179,47 +179,54 @@
 
       const shoulderWidth = Math.abs(lShoulder.x - rShoulder.x);
       const wingspan = Math.abs(lIndex.x - rIndex.x);
+      const avgShoulderY = (lShoulder.y + rShoulder.y) / 2;
 
-      // --- 條件 1：水滴滑水道斜率（手肘微低於肩、手腕微低於手肘） ---
-      // Y 軸越大代表越低。手肘必須在肩膀下方 0.08~0.35 個肩寬；手腕在手肘下方 0.05~0.3 個肩寬
-      const lElbowSlope = (lElbow.y - lShoulder.y) >= shoulderWidth * 0.05 && (lElbow.y - lShoulder.y) <= shoulderWidth * 0.45;
-      const rElbowSlope = (rElbow.y - rShoulder.y) >= shoulderWidth * 0.05 && (rElbow.y - rShoulder.y) <= shoulderWidth * 0.45;
-      
-      const lWristSlope = (lWrist.y - lElbow.y) >= shoulderWidth * 0.03 && (lWrist.y - lElbow.y) <= shoulderWidth * 0.40;
-      const rWristSlope = (rWrist.y - rElbow.y) >= shoulderWidth * 0.03 && (rWrist.y - rElbow.y) <= shoulderWidth * 0.40;
+      // --- 1. 高度上限與下限（杜絕手臂下垂作弊） ---
+      // 手肘深度：手肘只能微低於肩膀，不能低於 0.28 個肩寬
+      const lElbowDrop = lElbow.y - lShoulder.y;
+      const rElbowDrop = rElbow.y - rShoulder.y;
+      const isElbowHeightGood = (lElbowDrop >= -0.05 && lElbowDrop <= shoulderWidth * 0.28) &&
+                                (rElbowDrop >= -0.05 && rElbowDrop <= shoulderWidth * 0.28);
 
-      const isDownwardSlope = lElbowSlope && rElbowSlope && lWristSlope && rWristSlope;
+      // 手腕深度：手腕只能在肩膀下方 0.05 ~ 0.45 個肩寬之間（剛好在胸前高度，照片中垂到腰腹直接出局）
+      const lWristDrop = lWrist.y - lShoulder.y;
+      const rWristDrop = rWrist.y - rShoulder.y;
+      const isWristHeightGood = (lWristDrop >= shoulderWidth * 0.03 && lWristDrop <= shoulderWidth * 0.45) &&
+                                (rWristDrop >= shoulderWidth * 0.03 && rWristDrop <= shoulderWidth * 0.45);
 
-      // 檢查是否水平平舉（若是水平平舉直接抓包扣分）
-      const isHorizontalFlat = (Math.abs(lWrist.y - lShoulder.y) < shoulderWidth * 0.08) || 
-                               (Math.abs(rWrist.y - rShoulder.y) < shoulderWidth * 0.08);
+      // 嚴格判定是否垂落
+      const isArmsDropped = (lWristDrop > shoulderWidth * 0.45) || (rWristDrop > shoulderWidth * 0.45) ||
+                            (lElbowDrop > shoulderWidth * 0.28) || (rElbowDrop > shoulderWidth * 0.28);
 
-      // --- 條件 2：立體前向角度（手腕必須在肩膀前方，不可平舉或後甩） ---
-      // MediaPipe 的 z 軸越小表示離鏡頭越近（更在前方）
-      const isForwardLeft = (lWrist.z < lShoulder.z - 0.05);
-      const isForwardRight = (rWrist.z < rShoulder.z - 0.05);
-      const isForwardCurved = isForwardLeft && isForwardRight;
+      // --- 2. 水滴坡度（肩膀 -> 手肘 -> 手腕：平緩微傾斜） ---
+      const lSlope = (lElbow.y >= lShoulder.y - 0.03) && (lWrist.y >= lElbow.y - 0.02);
+      const rSlope = (rElbow.y >= rShoulder.y - 0.03) && (rWrist.y >= rElbow.y - 0.02);
+      const isSlopeGood = lSlope && rSlope;
 
-      // --- 條件 3：手肘微曲柔和（不可鎖死在 180°） ---
+      // 檢查是否水平十字架平舉（手腕高於肩）
+      const isHorizontalFlat = (lWrist.y < lShoulder.y + shoulderWidth * 0.02) || 
+                               (rWrist.y < rShoulder.y + shoulderWidth * 0.02);
+
+      // --- 3. 手肘微曲柔和（防關節完全打直鎖死） ---
       const leftElbowAngle = calculateAngle(lShoulder, lElbow, lWrist);
       const rightElbowAngle = calculateAngle(rShoulder, rElbow, rWrist);
-      const isElbowCurved = (leftElbowAngle >= 150 && leftElbowAngle <= 172 && rightElbowAngle >= 150 && rightElbowAngle <= 172);
+      const isElbowCurved = (leftElbowAngle >= 145 && leftElbowAngle <= 174 && rightElbowAngle >= 145 && rightElbowAngle <= 174);
 
-      // --- 條件 4：展開幅度（翼展要開，但不可死伸） ---
-      const isSpanGood = (wingspan >= shoulderWidth * 1.8 && wingspan <= shoulderWidth * 2.6);
+      // --- 4. 翼展幅寬（拉開但不過分硬扯） ---
+      const isSpanGood = (wingspan >= shoulderWidth * 1.9 && wingspan <= shoulderWidth * 2.7);
 
-      // --- 條件 5：左右平衡對稱性 ---
+      // --- 5. 左右平衡對稱性 ---
       const elbowDiff = Math.abs(lElbow.y - rElbow.y);
       const wristDiff = Math.abs(lWrist.y - rWrist.y);
       const isSymmetric = (elbowDiff <= shoulderWidth * 0.12) && (wristDiff <= shoulderWidth * 0.14);
 
-      // 評分權重設計
-      let scoreSlope = isDownwardSlope ? 35 : (isHorizontalFlat ? 0 : 15);
-      let scoreForward = isForwardCurved ? 25 : 10;
+      // 評分權重設計（下垂直接清零 40 分）
+      let scoreHeight = (!isArmsDropped && isElbowHeightGood && isWristHeightGood) ? 40 : 0;
+      let scoreSlope = (isSlopeGood && !isHorizontalFlat) ? 25 : 5;
       let scoreElbow = isElbowCurved ? 20 : (leftElbowAngle > 175 || rightElbowAngle > 175 ? 5 : 10);
-      let scoreSymmetry = isSymmetric ? 20 : 5;
+      let scoreSymmetry = (isSymmetric && isSpanGood) ? 15 : 5;
 
-      accuracy = Math.min(100, Math.max(0, scoreSlope + scoreForward + scoreElbow + scoreSymmetry));
+      accuracy = Math.min(100, Math.max(0, scoreHeight + scoreSlope + scoreElbow + scoreSymmetry));
 
       // 繪製骨骼線
       function drawBone(p1, p2, color, thickness) {
@@ -245,9 +252,9 @@
       drawBone(rWrist, rThumb, '#E040FB', 2);
       drawBone(rIndex, rPinky, '#E040FB', 2);
 
-      // 滑水道輔助線：從肩膀穿過手腕延伸一小段虛擬坡度
-      drawBone(lShoulder, lWrist, isDownwardSlope ? 'rgba(0, 230, 118, 0.3)' : 'rgba(255, 82, 82, 0.3)', 1);
-      drawBone(rShoulder, rWrist, isDownwardSlope ? 'rgba(0, 230, 118, 0.3)' : 'rgba(255, 82, 82, 0.3)', 1);
+      // 水平參考輔助線（讓學生看清楚標準二位手的高度範圍）
+      const benchY = avgShoulderY + shoulderWidth * 0.25;
+      drawBone({x: lElbow.x, y: benchY}, {x: rElbow.x, y: benchY}, 'rgba(0, 229, 255, 0.2)', 1);
 
       const keyPoints = [
         lShoulder, rShoulder, lElbow, rElbow, 
@@ -265,24 +272,27 @@
         canvasCtx.stroke();
       });
 
-      // 戲劇與動作結合的即時提示
+      // 即時狀態提示
       if (accuracy >= 85) {
         status = "PERFECT 2ND! 完美斜前下流暢弧度!";
         statusColor = "#00E676";
         holdCounter++;
       } else {
         holdCounter = Math.max(0, holdCounter - 1);
-        if (isHorizontalFlat) {
-          status = "不要平舉像十字架！雙手微向前、緩緩向下順流！";
+        if (isArmsDropped) {
+          status = "手臂太低！手肘與雙手抬起至胸高，切勿下垂！";
           statusColor = "#FF5252";
-        } else if (!isDownwardSlope) {
+        } else if (isHorizontalFlat) {
+          status = "不要平舉像十字架！肩膀放鬆，手臂順流向下！";
+          statusColor = "#FF5252";
+        } else if (!isSlopeGood) {
           status = "手腕微低於手肘！維持滑水道弧線！";
           statusColor = "#FF5252";
-        } else if (!isForwardCurved) {
-          status = "雙手帶到視線餘光內！稍微往身體前方抱！";
+        } else if (!isSpanGood) {
+          status = "雙臂向兩側充分延展拉開！";
           statusColor = "#FFA726";
         } else if (!isElbowCurved) {
-          status = "手肘微曲飽滿，切勿完全鎖死伸直！";
+          status = "手肘微曲柔和，切勿完全鎖死伸直！";
           statusColor = "#FFA726";
         } else if (!isSymmetric) {
           status = "左右兩翼等高平衡，核心穩住！";
