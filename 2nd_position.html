@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>芭蕾第二位置（杜絕死直微曲版）</title>
+  <title>芭蕾第二位置（修長弧形標準版）</title>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
   <style>
@@ -123,7 +123,7 @@
   </div>
 
   <div class="hud-header" id="status-card">
-    雙臂向兩側斜前下方展開（二位手）
+    雙臂向兩側流暢展開成第二位置（2nd Position）
   </div>
 
   <div class="energy-bar-container">
@@ -164,7 +164,7 @@
     canvasCtx.drawImage(results.image, 0, 0, w, h);
 
     let accuracy = 0;
-    let status = "雙臂向兩側斜前下方展開（二位手）";
+    let status = "雙臂向兩側流暢展開成第二位置（2nd Position）";
     let statusColor = "#FFA726";
 
     if (results.poseLandmarks) {
@@ -181,54 +181,49 @@
       const wingspan = Math.abs(lIndex.x - rIndex.x);
       const avgShoulderY = (lShoulder.y + rShoulder.y) / 2;
 
-      // 1. 手肘微曲飽滿弧度（嚴格杜絕打死伸直）
+      // 1. 手肘修長弧形檢核（對標第二張圖的完美自然微彎）
+      // 將角度範圍調整為 135° ~ 172°：既防止死直（≥ 173° 視為過直），也包容自然舒展的修長弧形
       const leftElbowAngle = calculateAngle(lShoulder, lElbow, lWrist);
       const rightElbowAngle = calculateAngle(rShoulder, rElbow, rWrist);
+      const isTooStraight = (leftElbowAngle >= 173 || rightElbowAngle >= 173);
+      const isElbowCurved = (leftElbowAngle >= 135 && leftElbowAngle <= 172 && rightElbowAngle >= 135 && rightElbowAngle <= 172);
 
-      // 只要任一手臂角度大於等於 170°，即判定為筆直鎖死錯誤！
-      const isTooStraight = (leftElbowAngle >= 170 || rightElbowAngle >= 170);
-      const isElbowCurved = (leftElbowAngle >= 145 && leftElbowAngle <= 168 && rightElbowAngle >= 145 && rightElbowAngle <= 168);
-
-      // 2. 水滴坡度：肩膀 -> 手肘 -> 手腕 微向下流動（手肘不能平舉高於肩，手腕不能高於手肘）
+      // 2. 坡度與高度檢核：手肘微低於肩，手腕流暢順下
       const lElbowDrop = lElbow.y - lShoulder.y;
       const rElbowDrop = rElbow.y - rShoulder.y;
       const lWristDrop = lWrist.y - lShoulder.y;
-      const rWristDrop = rWrist.y - rShoulder.y;
+      const rWristDrop = rWrist.y - lShoulder.y;
 
-      // 限制在胸前高度區間（防下垂至腰，也防平舉高於肩）
-      const isElbowHeightGood = (lElbowDrop >= 0.02 && lElbowDrop <= shoulderWidth * 0.28) &&
-                                (rElbowDrop >= 0.02 && rElbowDrop <= shoulderWidth * 0.28);
-      const isWristHeightGood = (lWristDrop >= shoulderWidth * 0.08 && lWristDrop <= shoulderWidth * 0.45) &&
-                                (rWristDrop >= shoulderWidth * 0.08 && rWristDrop <= shoulderWidth * 0.45);
+      const isElbowHeightGood = (lElbowDrop >= 0.01 && lElbowDrop <= shoulderWidth * 0.32) &&
+                                (rElbowDrop >= 0.01 && rElbowDrop <= shoulderWidth * 0.32);
+      const isWristHeightGood = (lWristDrop >= shoulderWidth * 0.05 && lWristDrop <= shoulderWidth * 0.50) &&
+                                (rWristDrop >= shoulderWidth * 0.05 && rWristDrop <= shoulderWidth * 0.50);
 
-      const isSlopeGood = (lWrist.y >= lElbow.y) && (rWrist.y >= rElbow.y) && isElbowHeightGood && isWristHeightGood;
+      const isSlopeGood = (lWrist.y >= lElbow.y - 0.02) && (rWrist.y >= rElbow.y - 0.02) && isElbowHeightGood && isWristHeightGood;
 
-      // 3. 立體前傾角（手腕稍微在身體前方，不可水平向後拉扯）
-      const isForwardLeft = (lWrist.z < lShoulder.z - 0.03);
-      const isForwardRight = (rWrist.z < rShoulder.z - 0.03);
-      const isForwardCurved = isForwardLeft && isForwardRight;
-
-      // 4. 展開幅度與對稱
-      const isSpanGood = (wingspan >= shoulderWidth * 1.85 && wingspan <= shoulderWidth * 2.65);
+      // 3. 兩側展開幅度
+      const isSpanGood = (wingspan >= shoulderWidth * 1.75 && wingspan <= shoulderWidth * 2.75);
+      
+      // 4. 左右對稱性
       const elbowDiff = Math.abs(lElbow.y - rElbow.y);
       const wristDiff = Math.abs(lWrist.y - rWrist.y);
-      const isSymmetric = (elbowDiff <= shoulderWidth * 0.12) && (wristDiff <= shoulderWidth * 0.14);
+      const isSymmetric = (elbowDiff <= shoulderWidth * 0.15) && (wristDiff <= shoulderWidth * 0.18);
 
-      // 權重打分（只要完全打直伸死，分數立刻壓在及格線以下）
+      // 評分配置
       let scoreElbow = 0;
       if (isTooStraight) {
-        scoreElbow = 0; // 伸直給 0 分
+        scoreElbow = 0; // 死直扣分
       } else if (isElbowCurved) {
-        scoreElbow = 35;
+        scoreElbow = 40;
       } else {
-        scoreElbow = 15;
+        scoreElbow = 20;
       }
 
-      let scoreSlope = isSlopeGood ? 30 : 5;
-      let scoreForward = isForwardCurved ? 20 : 10;
-      let scoreSymmetry = (isSymmetric && isSpanGood) ? 15 : 5;
+      let scoreSlope = isSlopeGood ? 30 : 10;
+      let scoreSpan = isSpanGood ? 15 : 5;
+      let scoreSymmetry = isSymmetric ? 15 : 5;
 
-      accuracy = Math.min(100, Math.max(0, scoreElbow + scoreSlope + scoreForward + scoreSymmetry));
+      accuracy = Math.min(100, Math.max(0, scoreElbow + scoreSlope + scoreSpan + scoreSymmetry));
 
       // 繪製骨骼線
       function drawBone(p1, p2, color, thickness) {
@@ -246,16 +241,13 @@
       drawBone(rShoulder, rElbow, '#00E5FF', 4);
       drawBone(rElbow, rWrist, '#00E5FF', 4);
 
-      // 手指微結構連線
+      // 手指微結構
       drawBone(lWrist, lIndex, '#E040FB', 2);
       drawBone(lWrist, lThumb, '#E040FB', 2);
       drawBone(lIndex, lPinky, '#E040FB', 2);
       drawBone(rWrist, rIndex, '#E040FB', 2);
       drawBone(rWrist, rThumb, '#E040FB', 2);
       drawBone(rIndex, rPinky, '#E040FB', 2);
-
-      // 手肘微曲提示線
-      drawBone(lElbow, rElbow, isSymmetric ? 'rgba(0, 230, 118, 0.4)' : 'rgba(255, 82, 82, 0.3)', 1);
 
       const keyPoints = [
         lShoulder, rShoulder, lElbow, rElbow, 
@@ -273,7 +265,7 @@
         canvasCtx.stroke();
       });
 
-      // 即時提示狀態
+      // 即時狀態回饋
       if (accuracy >= 85) {
         status = "PERFECT 2ND! 完美微曲向下流暢弧度!";
         statusColor = "#00E676";
@@ -281,22 +273,19 @@
       } else {
         holdCounter = Math.max(0, holdCounter - 1);
         if (isTooStraight) {
-          status = "錯誤！手肘切勿筆直鎖死！保持柔和微彎弧度！";
+          status = "手肘過於僵硬死直！請放鬆維持修長微彎弧形！";
           statusColor = "#FF5252";
         } else if (!isSlopeGood) {
-          status = "手腕微低於手肘、手肘微低於肩，順流向下！";
+          status = "手肘與手腕順流向下，保持優雅坡度！";
           statusColor = "#FF5252";
-        } else if (!isForwardCurved) {
-          status = "雙手稍微往前抱，帶進視線餘光內！";
-          statusColor = "#FFA726";
         } else if (!isSpanGood) {
-          status = "雙臂向兩側充分延展，但關節保持圓潤！";
+          status = "雙臂向兩側充分延伸展開！";
           statusColor = "#FFA726";
         } else if (!isSymmetric) {
-          status = "左右兩翼等高平衡，核心穩住！";
+          status = "左右兩側高度保持對稱平衡！";
           statusColor = "#FFA726";
         } else {
-          status = "沉肩長頸，維持柔韌的天鵝羽翼！";
+          status = "沉肩長頸，維持天鵝翅膀的修長弧線！";
           statusColor = "#FFA726";
         }
       }
