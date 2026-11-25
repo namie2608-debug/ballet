@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>芭蕾第五手位 + 旁腿舉腿（5th Position & À la seconde 3D 偵測版）</title>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: #121212;
+      color: #fff;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      overflow: hidden;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+    }
+    #stage-container {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      max-width: 1280px;
+      max-height: 720px;
+      background: #000;
+    }
+    video { 
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      opacity: 0;
+      pointer-events: none;
+    }
+    canvas {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transform: scaleX(-1);
+    }
+    .hud-header {
+      position: absolute;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0, 0, 0, 0.78);
+      border: 3px solid #FFA726;
+      padding: 10px 24px;
+      border-radius: 30px;
+      font-size: 20px;
+      font-weight: bold;
+      text-align: center;
+      transition: all 0.2s;
+      white-space: nowrap;
+      z-index: 10;
+      max-width: 82vw;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .timer-badge {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      background: rgba(0,0,0,0.72);
+      border: 4px solid #FF5252;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      font-size: 28px;
+      font-weight: 800;
+      z-index: 10;
+    }
+    .timer-badge span {
+      font-size: 11px;
+      color: #aaa;
+      margin-top: -2px;
+    }
+    .energy-bar-container {
+      position: absolute;
+      right: 25px;
+      top: 100px;
+      bottom: 100px;
+      width: 28px;
+      background: rgba(255,255,255,0.15);
+      border: 2px solid #fff;
+      border-radius: 14px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column-reverse;
+      z-index: 10;
+    }
+    .energy-bar-fill {
+      width: 100%;
+      height: 0%;
+      background: #FF5252;
+      transition: height 0.1s ease-out, background-color 0.2s;
+    }
+    .score-text {
+      position: absolute;
+      right: 15px;
+      bottom: 60px;
+      font-size: 22px;
+      font-weight: bold;
+      color: #fff;
+      width: 50px;
+      text-align: center;
+      z-index: 10;
+    }
+    .debug-panel {
+      position: absolute;
+      bottom: 20px;
+      left: 20px;
+      background: rgba(0, 0, 0, 0.72);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      border-radius: 12px;
+      padding: 10px 14px;
+      font-size: 13px;
+      line-height: 1.65;
+      color: #e0e0e0;
+      z-index: 10;
+      font-family: monospace;
+    }
+    @media (max-width: 768px) {
+      .hud-header {
+        font-size: 15px;
+        padding: 8px 16px;
+        top: 14px;
+      }
+      .timer-badge {
+        width: 62px;
+        height: 62px;
+        font-size: 22px;
+        top: 68px;
+        left: 14px;
+      }
+      .debug-panel {
+        font-size: 11px;
+        padding: 8px 10px;
+        bottom: 12px;
+        left: 12px;
+      }
+    }
+  </style>
+</head>
+<body>
+
+<div id="stage-container">
+  <video id="webcam" playsinline autoplay muted></video>
+  <canvas id="output-canvas"></canvas>
+
+  <div class="timer-badge" id="timer-badge">
+    <div id="hold-sec">0</div>
+    <span>HOLD(S)</span>
+  </div>
+
+  <div class="hud-header" id="status-card">
+    雙手舉至頭頂五位手，單腳向旁舉起（À la seconde）
+  </div>
+
+  <div class="energy-bar-container">
+    <div class="energy-bar-fill" id="energy-fill"></div>
+  </div>
+  <div class="score-text" id="score-text">0%</div>
+
+  <div class="debug-panel" id="debug-panel">
+    五位手肘角: L --° / R --° (目標 110~162°)<br>
+    旁腿抬升角: --° (目標 > 45°)<br>
+    膝蓋伸直度: 主力 --° / 旁腿 --° (目標 ≥ 155°)<br>
+    軀幹傾斜角: --° (目標 ≤ 22°)
+  </div>
+</div>
+
+<script>
+  const videoElement = document.getElementById('webcam');
+  const canvasElement = document.getElementById('output-canvas');
+  const canvasCtx = canvasElement.getContext('2d');
+  const statusCard = document.getElementById('status-card');
+  const energyFill = document.getElementById('energy-fill');
+  const scoreText = document.getElementById('score-text');
+  const holdSecText = document.getElementById('hold-sec');
+  const timerBadge = document.getElementById('timer-badge');
+  const debugPanel = document.getElementById('debug-panel');
+
+  // 使用真實毫秒時間計算維持秒數，不受裝置 FPS 影響
+  let holdDurationMs = 0;
+  let lastFrameTime = performance.now();
+
+  /**
+   * 使用真實 3D 世界座標計算三點夾角（a - b - c），避免 2D 畫面長寬比與透視變形
+   */
+  function calculateAngle3D(a, b, c) {
+    const v1 = { x: a.x - b.x, y: a.y - b.y, z: a.z - b.z };
+    const v2 = { x: c.x - b.x, y: c.y - b.y, z: c.z - b.z };
+    const dot = v1.x * v2.x + v1.y * v2.y + v1.z * v2.z;
+    const mag1 = Math.hypot(v1.x, v1.y, v1.z);
+    const mag2 = Math.hypot(v2.x, v2.y, v2.z);
+    if (mag1 === 0 || mag2 === 0) return 0;
+    const cosAngle = Math.max(-1, Math.min(1, dot / (mag1 * mag2)));
+    return Math.round(Math.acos(cosAngle) * 180.0 / Math.PI);
+  }
+
+  /**
+   * 計算 3D 腿部相對於「垂直向下」的抬升角度（0° = 站直，90° = 水平旁腿，>90° = 高旁腿）
+   */
+  function calculateLegLiftAngle3D(hip, ankle) {
+    const dx = ankle.x - hip.x;
+    const dy = ankle.y - hip.y; // MediaPipe World 座標 y 軸朝下
+    const dz = ankle.z - hip.z;
+    const mag = Math.hypot(dx, dy, dz);
+    if (mag === 0) return 0;
+    const cosTheta = Math.max(-1, Math.min(1, dy / mag));
+    return Math.round(Math.acos(cosTheta) * 180.0 / Math.PI);
+  }
+
+  function onResults(results) {
+    if (!results.image) return;
+
+    const now = performance.now();
+    const deltaTime = now - lastFrameTime;
+    lastFrameTime = now;
+
+    // 僅在尺寸變動時重設畫布，提升效能
+    const targetW = videoElement.videoWidth || 1280;
+    const targetH = videoElement.videoHeight || 720;
+    if (canvasElement.width !== targetW || canvasElement.height !== targetH) {
+      canvasElement.width = targetW;
+      canvasElement.height = targetH;
+    }
+    const w = canvasElement.width;
+    const h = canvasElement.height;
+
+    canvasCtx.save();
+    canvasCtx.clearRect(0, 0, w, h);
+    canvasCtx.drawImage(results.image, 0, 0, w, h);
+
+    let accuracy = 0;
+    let status = "請退後至全身入鏡：五位手 + 旁腿舉腿（À la seconde）";
+    let statusColor = "#FFA726";
+
+    if (results.poseLandmarks && results.poseWorldLandmarks) {
+      const lm = results.poseLandmarks;
+      const wl = results.poseWorldLandmarks;
+
+      // 頭部與上半身節點
+      const nose = lm[0];
+      const lEar = lm[7], rEar = lm[8];
+      const lShoulder = lm[11], rShoulder = lm[12];
+      const lElbow = lm[13], rElbow = lm[14];
+      const lWrist = lm[15], rWrist = lm[16];
+      const lIndex = lm[19], rIndex = lm[20];
+
+      // 下半身節點
+      const lHip = lm[23], rHip = lm[24];
+      const lKnee = lm[25], rKnee = lm[26];
+      const lAnkle = lm[27], rAnkle = lm[28];
+      const lFoot = lm[31], rFoot = lm[32];
+
+      // 檢查全身（特別是雙腿與腳踝）是否清楚入鏡
+      const lowerBodyVisible =
+        (lHip.visibility > 0.5 && rHip.visibility > 0.5) &&
+        (lKnee.visibility > 0.5 && rKnee.visibility > 0.5) &&
+        (lAnkle.visibility > 0.5 && rAnkle.visibility > 0.5);
+
+      // 繪製骨骼線工具函式
+      function drawBone(p1, p2, color, thickness) {
+        canvasCtx.beginPath();
+        canvasCtx.moveTo(p1.x * w, p1.y * h);
+        canvasCtx.lineTo(p2.x * w, p2.y * h);
+        canvasCtx.lineWidth = thickness;
+        canvasCtx.strokeStyle = color;
+        canvasCtx.stroke();
+      }
+
+      if (!lowerBodyVisible) {
+        status = "請往後退幾步，讓頭頂到雙腳完整入鏡！";
+        statusColor = "#FF5252";
+        holdDurationMs = 0;
+      } else {
+        const shoulderWidthPx = Math.hypot((lShoulder.x - rShoulder.x) * w, (lShoulder.y - rShoulder.y) * h);
+
+        // ==========================================
+        // 一、上半身：第五手位（5th Position / En Haut）檢核
+        // ==========================================
+        const headRefY = Math.min(nose.y, (lEar.y + rEar.y) / 2);
+
+        // 1. 高度：雙手手腕必須高於頭頂/額頭基準，且手腕高於手肘、手肘高於肩膀
+        const isArmsRaisedHigh =
+          (lWrist.y < headRefY - 0.02 && rWrist.y < headRefY - 0.02) &&
+          (lWrist.y < lElbow.y && rWrist.y < rElbow.y) &&
+          (lElbow.y < lShoulder.y && rElbow.y < rShoulder.y);
+
+        // 2. 頭頂橢圓框形狀：指尖保留優雅間距（不交疊、不張太開），且手肘寬於手腕
+        const fingerDistPx = Math.abs(lIndex.x - rIndex.x) * w;
+        const fingerRatio = shoulderWidthPx > 0 ? (fingerDistPx / shoulderWidthPx) : 0;
+        const isFingerSpacingGood = (fingerRatio >= 0.08 && fingerRatio <= 0.80);
+        const isNotOverlapping = (fingerRatio >= 0.08);
+
+        const elbowSpanPx = Math.abs(lElbow.x - rElbow.x) * w;
+        const wristSpanPx = Math.abs(lWrist.x - rWrist.x) * w;
+        const isArmOvalShape = (elbowSpanPx > wristSpanPx * 1.05);
+
+        // 3. 3D 手肘圓弧角度（110° ~ 162°，>= 166° 視為伸死直）
+        const leftElbowAngle = calculateAngle3D(wl[11], wl[13], wl[15]);
+        const rightElbowAngle = calculateAngle3D(wl[12], wl[14], wl[16]);
+        const isArmTooStraight = (leftElbowAngle >= 166 || rightElbowAngle >= 166);
+        const isElbowCurved = (leftElbowAngle >= 110 && leftElbowAngle <= 162) &&
+                              (rightElbowAngle >= 110 && rightElbowAngle <= 162);
+
+        // 4. 防手臂過度往腦後拉（五位手應在額頭微上方前側）
+        const avgShoulderZ = (wl[11].z + wl[12].z) / 2;
+        const lArmForwardM = avgShoulderZ - wl[15].z;
+        const rArmForwardM = avgShoulderZ - wl[16].z;
+        const isArmPulledBehindHead = (lArmForwardM < -0.10 || rArmForwardM < -0.10);
+
+        const isFifthArmsGood = isArmsRaisedHigh && isFingerSpacingGood && isArmOvalShape && isElbowCurved && !isArmPulledBehindHead;
+
+        // ==========================================
+        // 二、下半身：旁腿舉腿（À la seconde）檢核
+        // ==========================================
+        // 自動偵測哪一隻腳舉得較高（畫面 y 越小代表越高）
+        const isLeftLegWorking = lAnkle.y < rAnkle.y;
+        const workingLabel = isLeftLegWorking ? "左腿" : "右腿";
+
+        // 取得動力腿（舉起）與主力腿（站立）的 3D 世界座標節點
+        const wHip3D = isLeftLegWorking ? wl[23] : wl[24];
+        const wKnee3D = isLeftLegWorking ? wl[25] : wl[26];
+        const wAnkle3D = isLeftLegWorking ? wl[27] : wl[28];
+
+        const sHip3D = isLeftLegWorking ? wl[24] : wl[23];
+        const sKnee3D = isLeftLegWorking ? wl[26] : wl[25];
+        const sAnkle3D = isLeftLegWorking ? wl[28] : wl[27];
+
+        // 1. 旁腿抬升角度（0°=落地，超過 45° 即視為達標）
+        const legLiftAngle = calculateLegLiftAngle3D(wHip3D, wAnkle3D);
+        const isLegHighEnough = (legLiftAngle > 45);
+
+        // 2. 側向方位檢核（À la seconde 必須朝向「正側面」伸展，而非往前踢或往後踢）
+        const lateralDist = Math.abs(wAnkle3D.x - wHip3D.x);
+        const frontBackDist = Math.abs(wAnkle3D.z - wHip3D.z);
+        const isLegSideways = (lateralDist > 0.20) && (lateralDist >= frontBackDist * 1.15);
+
+        // 3. 雙腿膝蓋伸直度（3D 膝角）
+        const supportKneeAngle = calculateAngle3D(sHip3D, sKnee3D, sAnkle3D);
+        const workingKneeAngle = calculateAngle3D(wHip3D, wKnee3D, wAnkle3D);
+        const isSupportKneeStraight = (supportKneeAngle >= 158);
+        const isWorkingKneeStraight = (workingKneeAngle >= 152);
+
+        // 4. 軀幹穩定度（防為了抬高腿而嚴重倒向另一側歪腰）
+        const midShoulder3D = { x: (wl[11].x + wl[12].x) / 2, y: (wl[11].y + wl[12].y) / 2 };
+        const midHip3D = { x: (wl[23].x + wl[24].x) / 2, y: (wl[23].y + wl[24].y) / 2 };
+        const torsoDx = midShoulder3D.x - midHip3D.x;
+        const torsoDy = midShoulder3D.y - midHip3D.y; // 朝上為負值
+        const torsoTiltDeg = Math.round(Math.abs(Math.atan2(torsoDx, -torsoDy) * 180.0 / Math.PI));
+        const isTorsoUpright = (torsoTiltDeg <= 22);
+
+        // ==========================================
+        // 三、評分計算（總分 100 分）
+        // ==========================================
+        let scoreArms = 0;
+        if (isArmsRaisedHigh) {
+          scoreArms += 15;
+          if (isElbowCurved && !isArmTooStraight) scoreArms += 10;
+          if (isFingerSpacingGood && isArmOvalShape && !isArmPulledBehindHead) scoreArms += 10;
+        }
+
+        let scoreLegHeight = 0;
+        if (isLegHighEnough && isLegSideways) {
+          scoreLegHeight = 30;
+        } else if (legLiftAngle >= 25 && isLegSideways) {
+          scoreLegHeight = 15;
+        } else if (legLiftAngle >= 25) {
+          scoreLegHeight = 8;
+        }
+
+        let scoreKnees = (isSupportKneeStraight ? 13 : 0) + (isWorkingKneeStraight ? 12 : 0);
+        let scoreTorso = isTorsoUpright ? 10 : 0;
+
+        accuracy = Math.min(100, Math.max(0, scoreArms + scoreLegHeight + scoreKnees + scoreTorso));
+
+        // 嚴格門檻：任一核心要件未達標時鎖定最高分數，避免誤判過關
+        if (!isArmsRaisedHigh || !isLegHighEnough || !isLegSideways) {
+          accuracy = Math.min(accuracy, 65);
+        } else if (!isSupportKneeStraight || !isWorkingKneeStraight || isArmTooStraight) {
+          accuracy = Math.min(accuracy, 72);
+        }
+
+        // 更新左下角即時偵測數據面板
+        debugPanel.innerHTML =
+          `五位手肘角: L <b style="color:${leftElbowAngle >= 110 && leftElbowAngle <= 162 ? '#00E676' : '#FF5252'}">${leftElbowAngle}°</b> / R <b style="color:${rightElbowAngle >= 110 && rightElbowAngle <= 162 ? '#00E676' : '#FF5252'}">${rightElbowAngle}°</b> (110~162°)<br>` +
+          `旁腿抬升角: <b style="color:${isLegHighEnough && isLegSideways ? '#00E676' : '#FF5252'}">${workingLabel} ${legLiftAngle}°</b> ${isLegSideways ? '(側向✓)' : '(偏前後!)'} (>45°)<br>` +
+          `膝蓋伸直度: 主力 <b style="color:${isSupportKneeStraight ? '#00E676' : '#FF5252'}">${supportKneeAngle}°</b> / 旁腿 <b style="color:${isWorkingKneeStraight ? '#00E676' : '#FF5252'}">${workingKneeAngle}°</b> (≥155°)<br>` +
+          `軀幹傾斜角: <b style="color:${isTorsoUpright ? '#00E676' : '#FFA726'}">${torsoTiltDeg}°</b> (目標 ≤ 22°)`;
+
+        // ==========================================
+        // 四、繪製全身骨架與視覺導引線
+        // ==========================================
+        const armColor = isFifthArmsGood ? '#00E676' : '#00E5FF';
+        const workingLegColor = (isLegHighEnough && isLegSideways && isWorkingKneeStraight) ? '#00E676' : '#FF4081';
+        const supportLegColor = isSupportKneeStraight ? '#00E5FF' : '#FFA726';
+
+        // 軀幹框架
+        drawBone(lShoulder, rShoulder, '#FFFFFF', 3);
+        drawBone(lHip, rHip, '#FFFFFF', 3);
+        drawBone(lShoulder, lHip, 'rgba(255,255,255,0.65)', 3);
+        drawBone(rShoulder, rHip, 'rgba(255,255,255,0.65)', 3);
+
+        // 雙臂（五位手）
+        drawBone(lShoulder, lElbow, armColor, 4);
+        drawBone(lElbow, lWrist, armColor, 4);
+        drawBone(rShoulder, rElbow, armColor, 4);
+        drawBone(rElbow, rWrist, armColor, 4);
+        drawBone(lWrist, rWrist, isFifthArmsGood ? 'rgba(0, 230, 118, 0.6)' : 'rgba(255, 82, 82, 0.45)', 2);
+
+        // 雙腿（區分主力腿與動力旁腿顏色）
+        const lLegCol = isLeftLegWorking ? workingLegColor : supportLegColor;
+        const rLegCol = isLeftLegWorking ? supportLegColor : workingLegColor;
+        drawBone(lHip, lKnee, lLegCol, 5);
+        drawBone(lKnee, lAnkle, lLegCol, 5);
+        drawBone(lAnkle, lFoot, lLegCol, 3);
+        drawBone(rHip, rKnee, rLegCol, 5);
+        drawBone(rKnee, rAnkle, rLegCol, 5);
+        drawBone(rAnkle, rFoot, rLegCol, 3);
+
+        // 繪製關節點
+        const keyPoints = [
+          lShoulder, rShoulder, lElbow, rElbow, lWrist, rWrist,
+          lHip, rHip, lKnee, rKnee, lAnkle, rAnkle
+        ];
+        keyPoints.forEach(p => {
+          canvasCtx.beginPath();
+          canvasCtx.arc(p.x * w, p.y * h, 6, 0, 2 * Math.PI);
+          canvasCtx.fillStyle = accuracy >= 85 ? '#00E676' : '#00E5FF';
+          canvasCtx.fill();
+          canvasCtx.lineWidth = 1.5;
+          canvasCtx.strokeStyle = '#FFFFFF';
+          canvasCtx.stroke();
+        });
+
+        // ==========================================
+        // 五、即時語音／文字教學回饋
+        // ==========================================
+        if (accuracy >= 85) {
+          status = `PERFECT! 完美五位手與${workingLabel}旁腿（À la seconde）!`;
+          statusColor = "#00E676";
+          holdDurationMs += deltaTime;
+        } else {
+          holdDurationMs = Math.max(0, holdDurationMs - deltaTime);
+          if (!isArmsRaisedHigh) {
+            status = "請將雙手高舉過頭頂，呈第五手位（En Haut）！";
+            statusColor = "#FF5252";
+          } else if (isArmPulledBehindHead) {
+            status = "雙手拉太後面了！請微移至額頭斜上方！";
+            statusColor = "#FF5252";
+          } else if (isArmTooStraight || !isElbowCurved || !isArmOvalShape) {
+            status = "五位手肘請自然微彎撐圓，形成頭頂橢圓框！";
+            statusColor = "#FFA726";
+          } else if (!isNotOverlapping || !isFingerSpacingGood) {
+            status = "頭頂指尖保持一拳間距，切勿交疊或張太開！";
+            statusColor = "#FFA726";
+          } else if (!isLegHighEnough) {
+            status = `${workingLabel}請向正側面抬高超過 45°！`;
+            statusColor = "#FF5252";
+          } else if (!isLegSideways) {
+            status = "舉起的腿請對準身體正側面，不要偏往前或偏後！";
+            statusColor = "#FF5252";
+          } else if (!isSupportKneeStraight) {
+            status = "站立的主力腿膝蓋請完全伸直繃緊！";
+            statusColor = "#FF5252";
+          } else if (!isWorkingKneeStraight) {
+            status = `舉起的${workingLabel}膝蓋請伸直、腳背延伸！`;
+            statusColor = "#FF5252";
+          } else if (!isTorsoUpright) {
+            status = "核心收緊拉長脊柱，避免身體過度向側面歪斜！";
+            statusColor = "#FFA726";
+          } else {
+            status = "沉肩拉長頸部，保持優雅平衡！";
+            statusColor = "#FFA726";
+          }
+        }
+      }
+    } else {
+      holdDurationMs = 0;
+    }
+
+    const holdSeconds = Math.floor(holdDurationMs / 1000);
+    holdSecText.innerText = holdSeconds;
+    scoreText.innerText = accuracy + "%";
+    energyFill.style.height = accuracy + "%";
+
+    if (accuracy >= 85) {
+      energyFill.style.backgroundColor = "#00E676";
+      timerBadge.style.borderColor = "#00E676";
+    } else {
+      energyFill.style.backgroundColor = "#FF5252";
+      timerBadge.style.borderColor = "#FF5252";
+    }
+
+    statusCard.innerText = status;
+    statusCard.style.borderColor = statusColor;
+    statusCard.style.color = statusColor;
+
+    canvasCtx.restore();
+  }
+
+  const pose = new Pose({
+    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
+  });
+
+  pose.setOptions({
+    modelComplexity: 1,
+    smoothLandmarks: true,
+    minDetectionConfidence: 0.5,
+    minTrackingConfidence: 0.5
+  });
+
+  pose.onResults(onResults);
+
+  const camera = new Camera(videoElement, {
+    onFrame: async () => {
+      await pose.send({ image: videoElement });
+    },
+    width: 1280,
+    height: 720
+  });
+
+  camera.start().catch((err) => {
+    console.error("Camera error:", err);
+    statusCard.innerText = "無法開啟相機，請檢查瀏覽器相機權限！";
+    statusCard.style.borderColor = "#FF5252";
+    statusCard.style.color = "#FF5252";
+  });
+</script>
+</body>
+</html>
