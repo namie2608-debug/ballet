@@ -8,37 +8,50 @@
     :root {
       --primary: #00E5FF;
       --accent: #00E676;
+      --advanced: #FF4081;
+      --advanced-purple: #E040FB;
       --bg: #0d1117;
       --card-bg: #161b22;
       --border: #30363d;
       --text: #c9d1d9;
     }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    /* 修正原程式碼中的 "-" 筆誤為萬用選擇器 "*" */
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
     body {
       background-color: var(--bg);
       color: var(--text);
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans TC", sans-serif;
       min-height: 100vh;
       display: flex;
       flex-direction: column;
       align-items: center;
       padding: 32px 16px;
     }
+
     header {
       text-align: center;
       margin-bottom: 36px;
     }
+
     h1 {
       color: #fff;
       font-size: 2rem;
       letter-spacing: 2px;
       margin-bottom: 8px;
     }
+
     p.subtitle {
       color: var(--primary);
       font-size: 0.95rem;
       letter-spacing: 1px;
     }
+
     .grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
@@ -46,6 +59,7 @@
       width: 100%;
       max-width: 900px;
     }
+
     .card {
       background: var(--card-bg);
       border: 1px solid var(--border);
@@ -58,11 +72,13 @@
       justify-content: space-between;
       transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
     }
+
     .card:hover {
       transform: translateY(-4px);
       border-color: var(--primary);
       box-shadow: 0 8px 24px rgba(0, 229, 255, 0.15);
     }
+
     .tag {
       display: inline-block;
       align-self: flex-start;
@@ -74,21 +90,25 @@
       background: var(--primary);
       margin-bottom: 12px;
     }
+
     .tag-stage0 {
       background: #E040FB;
       color: #fff;
     }
+
     .card h2 {
       font-size: 1.25rem;
       color: #fff;
       margin-bottom: 8px;
     }
+
     .card p {
       font-size: 0.88rem;
       line-height: 1.4;
       color: #8b949e;
       margin-bottom: 16px;
     }
+
     .btn-label {
       font-size: 0.85rem;
       font-weight: 600;
@@ -97,10 +117,101 @@
       align-items: center;
       gap: 6px;
     }
+
+    /* 進階挑戰專屬區塊樣式 */
+    .advanced-section {
+      width: 100%;
+      max-width: 900px;
+      margin-top: 28px;
+    }
+
+    .card-advanced {
+      background: linear-gradient(135deg, rgba(224, 64, 251, 0.14) 0%, rgba(22, 27, 34, 0.96) 55%, rgba(0, 229, 255, 0.12) 100%);
+      border: 1.5px solid rgba(224, 64, 251, 0.55);
+      border-radius: 16px;
+      padding: 26px 28px;
+      text-decoration: none;
+      color: inherit;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+      transition: transform 0.25s, border-color 0.25s, box-shadow 0.25s;
+    }
+
+    .card-advanced:hover {
+      transform: translateY(-4px);
+      border-color: var(--advanced);
+      box-shadow: 0 10px 30px rgba(255, 64, 129, 0.22);
+    }
+
+    .advanced-content {
+      flex: 1;
+    }
+
+    .tag-advanced {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 0.75rem;
+      font-weight: 800;
+      letter-spacing: 0.8px;
+      color: #fff;
+      background: linear-gradient(90deg, var(--advanced-purple), var(--advanced));
+      margin-bottom: 10px;
+    }
+
+    .card-advanced h2 {
+      font-size: 1.4rem;
+      color: #fff;
+      margin-bottom: 8px;
+    }
+
+    .card-advanced p {
+      font-size: 0.92rem;
+      line-height: 1.5;
+      color: #c9d1d9;
+      margin-bottom: 0;
+    }
+
+    .advanced-btn {
+      flex-shrink: 0;
+      padding: 12px 22px;
+      border-radius: 30px;
+      background: linear-gradient(90deg, var(--advanced), #ff6e40);
+      color: #fff;
+      font-size: 0.92rem;
+      font-weight: 700;
+      white-space: nowrap;
+      box-shadow: 0 4px 14px rgba(255, 64, 129, 0.35);
+      transition: transform 0.2s, filter 0.2s;
+    }
+
+    .card-advanced:hover .advanced-btn {
+      filter: brightness(1.1);
+      transform: translateX(3px);
+    }
+
     footer {
       margin-top: 48px;
       font-size: 0.8rem;
       color: #484f58;
+      text-align: center;
+      line-height: 1.5;
+    }
+
+    /* 手機版響應式排版調整 */
+    @media (max-width: 640px) {
+      .card-advanced {
+        flex-direction: column;
+        align-items: flex-start;
+        padding: 22px 20px;
+        gap: 16px;
+      }
+      .advanced-btn {
+        width: 100%;
+        text-align: center;
+      }
     }
   </style>
 </head>
@@ -172,6 +283,18 @@
       <div class="btn-label">啟動檢測機 →</div>
     </a>
   </main>
+
+  <!-- 進階挑戰入口區塊 -->
+  <section class="advanced-section" aria-label="進階芭蕾姿勢挑戰入口">
+    <a class="card-advanced" href="https://namie2608-debug.github.io/ballet/advanced.html">
+      <div class="advanced-content">
+        <span class="tag-advanced">ADVANCED CHALLENGE</span>
+        <h2>進階芭蕾姿勢挑戰 (Passé & À la seconde)</h2>
+        <p>完成基礎手位了嗎？進入全身進階挑戰，體驗單腳吸腿平衡 (Passé) 與五位手旁腿舉腿 (À la seconde) 即時 AI 偵測！</p>
+      </div>
+      <div class="advanced-btn">前往進階挑戰 →</div>
+    </a>
+  </section>
 
   <footer>
     自主調節學習 (NTSRL) 肢體感知數位教材/新北市立中平國中 黃翊倫教師製作
