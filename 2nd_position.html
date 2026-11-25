@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>芭蕾第二位置（修長弧形標準版）</title>
+  <title>芭蕾第二位置（修長弧形 3D 嚴格版）</title>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
   <style>
@@ -49,7 +49,7 @@
       border: 3px solid #00E676;
       padding: 10px 24px;
       border-radius: 30px;
-      font-size: 22px;
+      font-size: 20px;
       font-weight: bold;
       text-align: center;
       transition: all 0.2s;
@@ -109,6 +109,20 @@
       text-align: center;
       z-index: 10;
     }
+    .debug-panel {
+      position: absolute;
+      bottom: 20px;
+      left: 20px;
+      background: rgba(0, 0, 0, 0.7);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      border-radius: 12px;
+      padding: 10px 14px;
+      font-size: 13px;
+      line-height: 1.6;
+      color: #e0e0e0;
+      z-index: 10;
+      font-family: monospace;
+    }
   </style>
 </head>
 <body>
@@ -130,6 +144,12 @@
     <div class="energy-bar-fill" id="energy-fill"></div>
   </div>
   <div class="score-text" id="score-text">0%</div>
+
+  <div class="debug-panel" id="debug-panel">
+    3D手肘角: L --° / R --° (目標 130~168°)<br>
+    微前弧度: -- cm (目標 4~42cm)<br>
+    展開比例: -- 倍肩寬 (目標 2.6~4.6)
+  </div>
 </div>
 
 <script>
@@ -141,21 +161,38 @@
   const scoreText = document.getElementById('score-text');
   const holdSecText = document.getElementById('hold-sec');
   const timerBadge = document.getElementById('timer-badge');
+  const debugPanel = document.getElementById('debug-panel');
 
-  let holdCounter = 0;
+  // 改用真實時間計算維持秒數，不受 FPS 影響
+  let holdDurationMs = 0;
+  let lastFrameTime = performance.now();
 
-  function calculateAngle(a, b, c) {
-    const radians = Math.atan2(c.y - b.y, c.x - b.x) - Math.atan2(a.y - b.y, a.x - b.x);
-    let angle = Math.abs(radians * 180.0 / Math.PI);
-    if (angle > 180.0) angle = 360 - angle;
-    return Math.round(angle);
+  // 使用真實 3D 世界座標計算手肘角度，避免 2D 畫面長寬比與透視變形
+  function calculateAngle3D(a, b, c) {
+    const v1 = { x: a.x - b.x, y: a.y - b.y, z: a.z - b.z };
+    const v2 = { x: c.x - b.x, y: c.y - b.y, z: c.z - b.z };
+    const dot = v1.x * v2.x + v1.y * v2.y + v1.z * v2.z;
+    const mag1 = Math.hypot(v1.x, v1.y, v1.z);
+    const mag2 = Math.hypot(v2.x, v2.y, v2.z);
+    if (mag1 === 0 || mag2 === 0) return 0;
+    const cosAngle = Math.max(-1, Math.min(1, dot / (mag1 * mag2)));
+    return Math.round(Math.acos(cosAngle) * 180.0 / Math.PI);
   }
 
   function onResults(results) {
     if (!results.image) return;
 
-    canvasElement.width = videoElement.videoWidth || 1280;
-    canvasElement.height = videoElement.videoHeight || 720;
+    const now = performance.now();
+    const deltaTime = now - lastFrameTime;
+    lastFrameTime = now;
+
+    // 僅在尺寸變動時重設畫布，避免效能浪費
+    const targetW = videoElement.videoWidth || 1280;
+    const targetH = videoElement.videoHeight || 720;
+    if (canvasElement.width !== targetW || canvasElement.height !== targetH) {
+      canvasElement.width = targetW;
+      canvasElement.height = targetH;
+    }
     const w = canvasElement.width;
     const h = canvasElement.height;
 
@@ -167,8 +204,9 @@
     let status = "雙臂向兩側流暢展開成第二位置（2nd Position）";
     let statusColor = "#FFA726";
 
-    if (results.poseLandmarks) {
+    if (results.poseLandmarks && results.poseWorldLandmarks) {
       const lm = results.poseLandmarks;
+      const wl = results.poseWorldLandmarks; // 真實 3D 座標（單位：公尺）
 
       const lShoulder = lm[11], rShoulder = lm[12];
       const lElbow = lm[13], rElbow = lm[14];
@@ -177,53 +215,69 @@
       const lIndex = lm[19], rIndex = lm[20];
       const lThumb = lm[21], rThumb = lm[22];
 
-      const shoulderWidth = Math.abs(lShoulder.x - rShoulder.x);
-      const wingspan = Math.abs(lIndex.x - rIndex.x);
-      const avgShoulderY = (lShoulder.y + rShoulder.y) / 2;
+      // 統一換算成真實像素距離，解決 16:9 / 9:16 比例尺失真
+      const shoulderWidthPx = Math.hypot((lShoulder.x - rShoulder.x) * w, (lShoulder.y - rShoulder.y) * h);
+      const wingspanPx = Math.abs(lIndex.x - rIndex.x) * w;
+      const spanRatio = shoulderWidthPx > 0 ? (wingspanPx / shoulderWidthPx) : 0;
 
-      // 1. 手肘修長弧形檢核（對標第二張圖的完美自然微彎）
-      // 將角度範圍調整為 135° ~ 172°：既防止死直（≥ 173° 視為過直），也包容自然舒展的修長弧形
-      const leftElbowAngle = calculateAngle(lShoulder, lElbow, lWrist);
-      const rightElbowAngle = calculateAngle(rShoulder, rElbow, rWrist);
-      const isTooStraight = (leftElbowAngle >= 173 || rightElbowAngle >= 173);
-      const isElbowCurved = (leftElbowAngle >= 135 && leftElbowAngle <= 172 && rightElbowAngle >= 135 && rightElbowAngle <= 172);
+      // 1. 3D 手肘修長弧形檢核（130° ~ 168° 為自然微彎，>= 170° 視為死直）
+      const leftElbowAngle = calculateAngle3D(wl[11], wl[13], wl[15]);
+      const rightElbowAngle = calculateAngle3D(wl[12], wl[14], wl[16]);
+      const isTooStraight = (leftElbowAngle >= 170 || rightElbowAngle >= 170);
+      const isElbowCurved = (leftElbowAngle >= 130 && leftElbowAngle <= 168) &&
+                            (rightElbowAngle >= 130 && rightElbowAngle <= 168);
 
-      // 2. 坡度與高度檢核：手肘微低於肩，手腕流暢順下
-      const lElbowDrop = lElbow.y - lShoulder.y;
-      const rElbowDrop = rElbow.y - rShoulder.y;
-      const lWristDrop = lWrist.y - lShoulder.y;
-      const rWristDrop = rWrist.y - lShoulder.y;
+      // 2. 坡度與高度檢核（修正原本 rWrist 誤減 lShoulder 的 Bug）
+      const lElbowDropPx = (lElbow.y - lShoulder.y) * h;
+      const rElbowDropPx = (rElbow.y - rShoulder.y) * h;
+      const lWristDropPx = (lWrist.y - lShoulder.y) * h;
+      const rWristDropPx = (rWrist.y - rShoulder.y) * h;
 
-      const isElbowHeightGood = (lElbowDrop >= 0.01 && lElbowDrop <= shoulderWidth * 0.32) &&
-                                (rElbowDrop >= 0.01 && rElbowDrop <= shoulderWidth * 0.32);
-      const isWristHeightGood = (lWristDrop >= shoulderWidth * 0.05 && lWristDrop <= shoulderWidth * 0.50) &&
-                                (rWristDrop >= shoulderWidth * 0.05 && rWristDrop <= shoulderWidth * 0.50);
+      // 手肘微低於肩（0 ~ 0.45 倍肩寬），手腕順勢再微低於手肘（0.05 ~ 0.75 倍肩寬）
+      const isElbowHeightGood = (lElbowDropPx >= -shoulderWidthPx * 0.05 && lElbowDropPx <= shoulderWidthPx * 0.45) &&
+                                (rElbowDropPx >= -shoulderWidthPx * 0.05 && rElbowDropPx <= shoulderWidthPx * 0.45);
+      const isWristHeightGood = (lWristDropPx >= shoulderWidthPx * 0.05 && lWristDropPx <= shoulderWidthPx * 0.75) &&
+                                (rWristDropPx >= shoulderWidthPx * 0.05 && rWristDropPx <= shoulderWidthPx * 0.75);
+      const isSmoothDownSlope = ((lWrist.y - lElbow.y) * h >= -shoulderWidthPx * 0.05) &&
+                                ((rWrist.y - rElbow.y) * h >= -shoulderWidthPx * 0.05);
+      const isSlopeGood = isElbowHeightGood && isWristHeightGood && isSmoothDownSlope;
 
-      const isSlopeGood = (lWrist.y >= lElbow.y - 0.02) && (rWrist.y >= rElbow.y - 0.02) && isElbowHeightGood && isWristHeightGood;
+      // 3. 3D 微前弧度檢核（第二位置手臂必須在身體「微前方」，不能往後拉超過肩膀）
+      // wl 中 z 越小代表越靠近鏡頭，正值代表手腕在肩膀前方
+      const lForwardM = wl[11].z - wl[15].z;
+      const rForwardM = wl[12].z - wl[16].z;
+      const isPulledBack = (lForwardM < 0.04 || rForwardM < 0.04);
+      const isForwardCurveGood = (lForwardM >= 0.04 && lForwardM <= 0.42) &&
+                                 (rForwardM >= 0.04 && rForwardM <= 0.42);
 
-      // 3. 兩側展開幅度
-      const isSpanGood = (wingspan >= shoulderWidth * 1.75 && wingspan <= shoulderWidth * 2.75);
-      
-      // 4. 左右對稱性
-      const elbowDiff = Math.abs(lElbow.y - rElbow.y);
-      const wristDiff = Math.abs(lWrist.y - rWrist.y);
-      const isSymmetric = (elbowDiff <= shoulderWidth * 0.15) && (wristDiff <= shoulderWidth * 0.18);
+      // 4. 兩側展開幅度（修正為符合真實人體比例的 2.6 ~ 4.6 倍肩寬）
+      const isSpanGood = (spanRatio >= 2.6 && spanRatio <= 4.6);
 
-      // 評分配置
-      let scoreElbow = 0;
-      if (isTooStraight) {
-        scoreElbow = 0; // 死直扣分
-      } else if (isElbowCurved) {
-        scoreElbow = 40;
-      } else {
-        scoreElbow = 20;
-      }
+      // 5. 左右對稱性（像素基準）
+      const elbowDiffPx = Math.abs(lElbow.y - rElbow.y) * h;
+      const wristDiffPx = Math.abs(lWrist.y - rWrist.y) * h;
+      const isSymmetric = (elbowDiffPx <= shoulderWidthPx * 0.18) && (wristDiffPx <= shoulderWidthPx * 0.22);
 
-      let scoreSlope = isSlopeGood ? 30 : 10;
+      // 更新左下角即時偵測數值面板
+      const avgForwardCm = Math.round(((lForwardM + rForwardM) / 2) * 100);
+      debugPanel.innerHTML =
+        `3D手肘角: L <b style="color:${leftElbowAngle >= 130 && leftElbowAngle <= 168 ? '#00E676' : '#FF5252'}">${leftElbowAngle}°</b> / R <b style="color:${rightElbowAngle >= 130 && rightElbowAngle <= 168 ? '#00E676' : '#FF5252'}">${rightElbowAngle}°</b> (130~168°)<br>` +
+        `微前弧度: <b style="color:${isForwardCurveGood ? '#00E676' : '#FF5252'}">${avgForwardCm} cm</b> (目標 4~42cm)<br>` +
+        `展開比例: <b style="color:${isSpanGood ? '#00E676' : '#FFA726'}">${spanRatio.toFixed(2)}</b> 倍肩寬 (目標 2.6~4.6)`;
+
+      // 評分配置（總分 100 分）
+      let scoreElbow = isTooStraight ? 0 : (isElbowCurved ? 30 : 10);
+      let scoreSlope = isSlopeGood ? 25 : 5;
+      let scoreForward = isForwardCurveGood ? 20 : 0;
       let scoreSpan = isSpanGood ? 15 : 5;
-      let scoreSymmetry = isSymmetric ? 15 : 5;
+      let scoreSymmetry = isSymmetric ? 10 : 0;
 
-      accuracy = Math.min(100, Math.max(0, scoreElbow + scoreSlope + scoreSpan + scoreSymmetry));
+      accuracy = Math.min(100, Math.max(0, scoreElbow + scoreSlope + scoreForward + scoreSpan + scoreSymmetry));
+
+      // 嚴格門檻：若手臂死直或往後拉過頭，分數最高鎖定在 70%
+      if (isTooStraight || isPulledBack) {
+        accuracy = Math.min(accuracy, 70);
+      }
 
       // 繪製骨骼線
       function drawBone(p1, p2, color, thickness) {
@@ -269,11 +323,14 @@
       if (accuracy >= 85) {
         status = "PERFECT 2ND! 完美微曲向下流暢弧度!";
         statusColor = "#00E676";
-        holdCounter++;
+        holdDurationMs += deltaTime;
       } else {
-        holdCounter = Math.max(0, holdCounter - 1);
+        holdDurationMs = Math.max(0, holdDurationMs - deltaTime);
         if (isTooStraight) {
           status = "手肘過於僵硬死直！請放鬆維持修長微彎弧形！";
+          statusColor = "#FF5252";
+        } else if (isPulledBack) {
+          status = "手臂拉太後面了！請往前收回至視線餘光微前方！";
           statusColor = "#FF5252";
         } else if (!isSlopeGood) {
           status = "手肘與手腕順流向下，保持優雅坡度！";
@@ -289,9 +346,11 @@
           statusColor = "#FFA726";
         }
       }
+    } else {
+      holdDurationMs = 0;
     }
 
-    const holdSeconds = Math.floor(holdCounter / 20);
+    const holdSeconds = Math.floor(holdDurationMs / 1000);
     holdSecText.innerText = holdSeconds;
     scoreText.innerText = accuracy + "%";
     energyFill.style.height = accuracy + "%";
