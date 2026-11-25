@@ -49,7 +49,7 @@
       border: 3px solid #00E676;
       padding: 10px 24px;
       border-radius: 30px;
-      font-size: 22px;
+      font-size: 20px;
       font-weight: bold;
       text-align: center;
       transition: all 0.2s;
@@ -109,6 +109,20 @@
       text-align: center;
       z-index: 10;
     }
+    .debug-panel {
+      position: absolute;
+      bottom: 20px;
+      left: 20px;
+      background: rgba(0, 0, 0, 0.7);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      border-radius: 12px;
+      padding: 10px 14px;
+      font-size: 13px;
+      line-height: 1.6;
+      color: #e0e0e0;
+      z-index: 10;
+      font-family: monospace;
+    }
   </style>
 </head>
 <body>
@@ -130,6 +144,11 @@
     <div class="energy-bar-fill" id="energy-fill"></div>
   </div>
   <div class="score-text" id="score-text">0%</div>
+
+  <div class="debug-panel" id="debug-panel">
+    前伸距離: -- cm (目標 22~55cm)<br>
+    3D手肘角: L --° / R --° (目標 100~155°)
+  </div>
 </div>
 
 <script>
@@ -141,21 +160,38 @@
   const scoreText = document.getElementById('score-text');
   const holdSecText = document.getElementById('hold-sec');
   const timerBadge = document.getElementById('timer-badge');
+  const debugPanel = document.getElementById('debug-panel');
 
-  let holdCounter = 0;
+  // 改用真實時間計算維持秒數，避免不同電腦 FPS 導致計時不準
+  let holdDurationMs = 0;
+  let lastFrameTime = performance.now();
 
-  function calculateAngle(a, b, c) {
-    const radians = Math.atan2(c.y - b.y, c.x - b.x) - Math.atan2(a.y - b.y, a.x - b.x);
-    let angle = Math.abs(radians * 180.0 / Math.PI);
-    if (angle > 180.0) angle = 360 - angle;
-    return Math.round(angle);
+  // 使用真實 3D 座標（公尺）計算手肘角度，徹底避免手臂往前伸時的 2D 透視變形
+  function calculateAngle3D(a, b, c) {
+    const v1 = { x: a.x - b.x, y: a.y - b.y, z: a.z - b.z };
+    const v2 = { x: c.x - b.x, y: c.y - b.y, z: c.z - b.z };
+    const dot = v1.x * v2.x + v1.y * v2.y + v1.z * v2.z;
+    const mag1 = Math.hypot(v1.x, v1.y, v1.z);
+    const mag2 = Math.hypot(v2.x, v2.y, v2.z);
+    if (mag1 === 0 || mag2 === 0) return 0;
+    const cosAngle = Math.max(-1, Math.min(1, dot / (mag1 * mag2)));
+    return Math.round(Math.acos(cosAngle) * 180.0 / Math.PI);
   }
 
   function onResults(results) {
     if (!results.image) return;
 
-    canvasElement.width = videoElement.videoWidth || 1280;
-    canvasElement.height = videoElement.videoHeight || 720;
+    const now = performance.now();
+    const deltaTime = now - lastFrameTime;
+    lastFrameTime = now;
+
+    // 同步畫布與相機實際解析度，並定義 w 與 h
+    const targetW = videoElement.videoWidth || 1280;
+    const targetH = videoElement.videoHeight || 720;
+    if (canvasElement.width !== targetW || canvasElement.height !== targetH) {
+      canvasElement.width = targetW;
+      canvasElement.height = targetH;
+    }
     const w = canvasElement.width;
     const h = canvasElement.height;
 
@@ -167,8 +203,9 @@
     let status = "雙手於胃部前方環抱成第一手位（1st Position）";
     let statusColor = "#FFA726";
 
-    if (results.poseLandmarks) {
+    if (results.poseLandmarks && results.poseWorldLandmarks) {
       const lm = results.poseLandmarks;
+      const wl = results.poseWorldLandmarks; // 真實 3D 世界座標（單位：公尺）
 
       const lShoulder = lm[11], rShoulder = lm[12];
       const lElbow = lm[13], rElbow = lm[14];
@@ -177,39 +214,63 @@
       const lIndex = lm[19], rIndex = lm[20];
       const lThumb = lm[21], rThumb = lm[22];
 
-      const shoulderWidth = Math.abs(lShoulder.x - rShoulder.x);
-      const avgShoulderY = (lShoulder.y + rShoulder.y) / 2;
+      // 轉換為真實像素基準，解決不同螢幕長寬比導致的判定誤差
+      const shoulderWidthPx = Math.hypot((lShoulder.x - rShoulder.x) * w, (lShoulder.y - rShoulder.y) * h);
+      const avgShoulderYPx = ((lShoulder.y + rShoulder.y) / 2) * h;
 
-      // 1. 嚴格高度檢核：手腕必須精準位於「胃部高度」（肩膀下方 0.28 ~ 0.65 個肩寬範圍內）
-      // 太低（掉到腹部）或太高（聳肩貼胸口）直接判定錯誤
-      const lWristDrop = lWrist.y - avgShoulderY;
-      const rWristDrop = rWrist.y - avgShoulderY;
-      const isHeightPerfect = (lWristDrop >= shoulderWidth * 0.28 && lWristDrop <= shoulderWidth * 0.65) &&
-                              (rWristDrop >= shoulderWidth * 0.28 && rWristDrop <= shoulderWidth * 0.65);
-      const isTooLow = (lWristDrop > shoulderWidth * 0.65 || rWristDrop > shoulderWidth * 0.65);
+      // 1. 嚴格高度檢核（以像素計算）：手腕位於肩膀下方 0.45 ~ 0.95 個肩寬（胃部高度）
+      const lWristDropPx = (lWrist.y * h) - avgShoulderYPx;
+      const rWristDropPx = (rWrist.y * h) - avgShoulderYPx;
+      const isHeightPerfect = (lWristDropPx >= shoulderWidthPx * 0.45 && lWristDropPx <= shoulderWidthPx * 0.95) &&
+                              (rWristDropPx >= shoulderWidthPx * 0.45 && rWristDropPx <= shoulderWidthPx * 0.95);
+      const isTooLow = (lWristDropPx > shoulderWidthPx * 0.95 || rWristDropPx > shoulderWidthPx * 0.95);
 
-      // 2. 修長弧線與防重疊、防扁平檢核：
-      // 兩手食指尖必須保持適當微距（留一拳空間，不交疊也不過寬），且手腕與身體保持距離
-      const fingerDist = Math.abs(lIndex.x - rIndex.x);
-      const isFingerSpacingGood = (fingerDist >= shoulderWidth * 0.12 && fingerDist <= shoulderWidth * 0.55);
-      const isNotOverlapping = (fingerDist >= shoulderWidth * 0.08);
+      // 2. 指尖間距與防重疊檢核（留一拳空間）
+      const fingerDistPx = Math.abs(lIndex.x - rIndex.x) * w;
+      const isFingerSpacingGood = (fingerDistPx >= shoulderWidthPx * 0.15 && fingerDistPx <= shoulderWidthPx * 0.65);
+      const isNotOverlapping = (fingerDistPx >= shoulderWidthPx * 0.10);
 
-      // 3. 手肘與手臂弧度（維持修長圓弧，手肘向外撐開，角度在 85° ~ 145° 之間）
-      const leftElbowAngle = calculateAngle(lShoulder, lElbow, lWrist);
-      const rightElbowAngle = calculateAngle(rShoulder, rElbow, rWrist);
-      const isElbowCurved = (leftElbowAngle >= 85 && leftElbowAngle <= 145 && rightElbowAngle >= 85 && rightElbowAngle <= 145);
+      // 3. 真實 3D 手肘弧度與防掉手肘（手肘高於手腕，且 3D 弧度在 100° ~ 155°）
+      const leftElbowAngle = calculateAngle3D(wl[11], wl[13], wl[15]);
+      const rightElbowAngle = calculateAngle3D(wl[12], wl[14], wl[16]);
+      const isElbowHigherThanWrist = (lElbow.y < lWrist.y) && (rElbow.y < rWrist.y);
+      const isElbowCurved = isElbowHigherThanWrist && 
+                            (leftElbowAngle >= 100 && leftElbowAngle <= 155) && 
+                            (rightElbowAngle >= 100 && rightElbowAngle <= 155);
 
-      // 4. 左右對稱性
-      const wristYDiff = Math.abs(lWrist.y - rWrist.y);
-      const isSymmetric = (wristYDiff <= shoulderWidth * 0.15);
+      // 4. 真實 3D 前伸距離檢核（防止手臂貼在肚子上）
+      // poseWorldLandmarks 中 z 越小（越負）代表越靠近鏡頭，單位為公尺
+      // 貼肚子通常只有 0.10~0.18m，正確往前抱圓應在肩膀前方 0.22m ~ 0.55m（約 22~55 公分）
+      const avgShoulderZ = (wl[11].z + wl[12].z) / 2;
+      const lForwardM = avgShoulderZ - wl[15].z;
+      const rForwardM = avgShoulderZ - wl[16].z;
+      const isForwardRound = (lForwardM >= 0.22 && lForwardM <= 0.55) &&
+                             (rForwardM >= 0.22 && rForwardM <= 0.55);
+      const isTooFarForward = (lForwardM > 0.55 || rForwardM > 0.55);
 
-      // 評分機制（高度不對或手臂扁平直接扣重分）
-      let scoreHeight = isHeightPerfect ? 35 : (isTooLow ? 5 : 15);
-      let scoreSpacing = (isFingerSpacingGood && isNotOverlapping) ? 30 : 5;
+      // 更新左下角即時數值面板，方便觀察與微調
+      const avgForwardCm = Math.round(((lForwardM + rForwardM) / 2) * 100);
+      debugPanel.innerHTML =
+        `前伸距離: <b style="color:${isForwardRound ? '#00E676' : '#FF5252'}">${avgForwardCm} cm</b> (目標 22~55cm)<br>` +
+        `3D手肘角: L <b>${leftElbowAngle}°</b> / R <b>${rightElbowAngle}°</b> (目標 100~155°)`;
+
+      // 5. 左右對稱性
+      const wristYDiffPx = Math.abs(lWrist.y - rWrist.y) * h;
+      const isSymmetric = (wristYDiffPx <= shoulderWidthPx * 0.15);
+
+      // 評分機制（總分 100 分，提高立體抱圓權重）
+      let scoreDepth = isForwardRound ? 25 : 0;
+      let scoreHeight = isHeightPerfect ? 25 : (isTooLow ? 5 : 10);
+      let scoreSpacing = (isFingerSpacingGood && isNotOverlapping) ? 20 : 5;
       let scoreElbow = isElbowCurved ? 20 : 5;
-      let scoreSymmetry = isSymmetric ? 15 : 5;
+      let scoreSymmetry = isSymmetric ? 10 : 0;
 
-      accuracy = Math.min(100, Math.max(0, scoreHeight + scoreSpacing + scoreElbow + scoreSymmetry));
+      accuracy = Math.min(100, Math.max(0, scoreDepth + scoreHeight + scoreSpacing + scoreElbow + scoreSymmetry));
+
+      // 嚴格門檻：如果沒有往前抱圓（貼著肚子），分數最高鎖定在 70%，絕對不給過關
+      if (!isForwardRound) {
+        accuracy = Math.min(accuracy, 70);
+      }
 
       // 繪製骨骼線
       function drawBone(p1, p2, color, thickness) {
@@ -236,7 +297,7 @@
       drawBone(rIndex, rPinky, '#E040FB', 2);
 
       // 胃部環抱輔助線
-      drawBone(lWrist, rWrist, accuracy >= 85 ? 'rgba(0, 230, 118, 0.5)' : 'rgba(255, 82, 82, 0.4)', 2);
+      drawBone(lWrist, rWrist, accuracy >= 85 ? 'rgba(0, 230, 118, 0.6)' : 'rgba(255, 82, 82, 0.4)', 2);
 
       const keyPoints = [
         lShoulder, rShoulder, lElbow, rElbow, 
@@ -258,10 +319,15 @@
       if (accuracy >= 85) {
         status = "PERFECT 1ST POSITION! 完美一位手!";
         statusColor = "#00E676";
-        holdCounter++;
+        holdDurationMs += deltaTime;
       } else {
-        holdCounter = Math.max(0, holdCounter - 1);
-        if (isTooLow) {
+        holdDurationMs = Math.max(0, holdDurationMs - deltaTime);
+        if (!isForwardRound) {
+          status = isTooFarForward
+            ? "手臂伸太直太遠了！請收回成柔和圓弧！"
+            : "手臂太貼肚子了！請往前環抱，與身體保持距離！";
+          statusColor = "#FF5252";
+        } else if (isTooLow) {
           status = "手腕太低了！請提高至胃部與肋骨下方！";
           statusColor = "#FF5252";
         } else if (!isHeightPerfect) {
@@ -270,6 +336,9 @@
         } else if (!isNotOverlapping) {
           status = "指尖切勿交疊！保持一拳修長弧線！";
           statusColor = "#FF5252";
+        } else if (!isElbowHigherThanWrist) {
+          status = "手肘掉下來了！請撐起手肘高於手腕！";
+          statusColor = "#FFA726";
         } else if (!isElbowCurved) {
           status = "手肘向外撐開，維持飽滿的橢圓弧線！";
           statusColor = "#FFA726";
@@ -281,9 +350,12 @@
           statusColor = "#FFA726";
         }
       }
+    } else {
+      // 沒偵測到人時歸零
+      holdDurationMs = 0;
     }
 
-    const holdSeconds = Math.floor(holdCounter / 20);
+    const holdSeconds = Math.floor(holdDurationMs / 1000);
     holdSecText.innerText = holdSeconds;
     scoreText.innerText = accuracy + "%";
     energyFill.style.height = accuracy + "%";
